@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { Layers, Globe, HelpCircle, Search, X } from './icons'
+import { Layers, Globe, Group, HelpCircle, Search, X } from './icons'
 import { useT, LANGS, LANG_LABELS } from '@/lib/i18n'
 import type { Space } from '@/lib/schema'
 import { SettingsMenu } from './settings-menu'
@@ -12,6 +12,8 @@ interface Props {
   onExport: () => void
   onImport: () => void
   onHelp: () => void
+  groupingEnabled: boolean
+  onToggleGrouping: () => void
 }
 
 function LanguageSwitcher() {
@@ -68,6 +70,8 @@ export function TopBar({
   onExport,
   onImport,
   onHelp,
+  groupingEnabled,
+  onToggleGrouping,
 }: Props) {
   const { t } = useT()
 
@@ -114,8 +118,22 @@ export function TopBar({
           )}
         </div>
 
-        {/* 右:三个按钮靠右(flex-1 + justify-end) */}
+        {/* 右:按钮组靠右(flex-1 + justify-end) */}
         <div className="flex-1 flex items-center justify-end gap-2">
+          {/* 分组开关:active 时高亮,与 search/pin 等切换按钮风格一致 */}
+          <button
+            onClick={onToggleGrouping}
+            className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+              groupingEnabled
+                ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800'
+                : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700'
+            }`}
+            title={t('groupTabsByDomain')}
+            aria-label={t('groupTabsByDomain')}
+            aria-pressed={groupingEnabled}
+          >
+            <Group className="w-4 h-4" />
+          </button>
           <button
             onClick={onHelp}
             className="w-8 h-8 flex items-center justify-center rounded-md text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"

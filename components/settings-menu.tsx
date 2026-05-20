@@ -1,8 +1,7 @@
 import { useState, useRef, useEffect } from 'react'
 import { useT } from '@/lib/i18n'
 import { useTheme, THEME_PREFS, type ThemePref } from '@/lib/theme'
-import { useGroupTabsByDomain } from '@/lib/settings'
-import { Settings, Download, Upload, Layers } from './icons'
+import { Settings, Download, Upload } from './icons'
 
 interface Props {
   onExport: () => void
@@ -12,7 +11,6 @@ interface Props {
 export function SettingsMenu({ onExport, onImport }: Props) {
   const { t } = useT()
   const { pref: themePref, setPref: setThemePref } = useTheme()
-  const { enabled: groupingEnabled, setEnabled: setGroupingEnabled } = useGroupTabsByDomain()
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -60,21 +58,6 @@ export function SettingsMenu({ onExport, onImport }: Props) {
                 {themeLabel(p)}
               </button>
             ))}
-          </div>
-          <div className="border-t border-slate-100 dark:border-slate-700 px-3 py-2">
-            <label className="flex items-center gap-2 cursor-pointer select-none">
-              <Layers className="w-3.5 h-3.5 text-slate-500 dark:text-slate-400 flex-shrink-0" />
-              <span className="flex-1 text-sm text-slate-700 dark:text-slate-200">
-                {t('groupTabsByDomain')}
-              </span>
-              <input
-                type="checkbox"
-                checked={groupingEnabled}
-                onChange={(e) => setGroupingEnabled(e.target.checked)}
-                className="w-4 h-4 cursor-pointer accent-slate-700 dark:accent-slate-300"
-                aria-label={t('groupTabsByDomain')}
-              />
-            </label>
           </div>
           <div className="border-t border-slate-100 dark:border-slate-700">
             <button
