@@ -23,6 +23,7 @@ interface Props {
   onTogglePinned: (id: string) => void
   onSetEmoji: (id: string, emoji: string | undefined) => void
   onSetNote: (id: string, note: string | undefined) => void
+  groupingEnabled: boolean
 }
 
 export function SpaceList({
@@ -44,6 +45,7 @@ export function SpaceList({
   onTogglePinned,
   onSetEmoji,
   onSetNote,
+  groupingEnabled,
 }: Props) {
   const { t } = useT()
 
@@ -81,6 +83,7 @@ export function SpaceList({
           onTogglePinned={onTogglePinned}
           onSetEmoji={onSetEmoji}
           onSetNote={onSetNote}
+          groupingEnabled={groupingEnabled}
         />
       ))}
     </div>

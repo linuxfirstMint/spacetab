@@ -1,6 +1,8 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import type { Space } from '@/lib/schema'
+import type { Space, Tab } from '@/lib/schema'
+import { groupTabsForRender } from '@/lib/render-groups'
+import { TabGroupBlock } from './tab-group-block'
 import { colorForSpace, relativeTime } from '@/lib/ui-utils'
 import { useT } from '@/lib/i18n'
 import { ArrowRight, ChevronDown, Copy, FileText, GripVertical, Pencil, Search, Sparkle, Star, StarFilled, Trash, X } from './icons'
@@ -28,6 +30,7 @@ interface Props {
   onLiveTabDrop: (tabId: number, toSpaceId: string) => void
   onMerge: (fromId: string, toId: string) => void
   onReorder: (fromId: string, toId: string, position: 'before' | 'after') => void
+  groupingEnabled: boolean
 }
 
 type DragKind = 'tab' | 'liveTab' | 'space-merge' | 'space-before' | 'space-after' | null
@@ -52,6 +55,7 @@ export function SpaceItem({
   onLiveTabDrop,
   onMerge,
   onReorder,
+  groupingEnabled,
 }: Props) {
   const { t } = useT()
   const [editing, setEditing] = useState(false)
@@ -70,6 +74,9 @@ export function SpaceItem({
   const [bulkMenuPos, setBulkMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const bulkMoveBtnRef = useRef<HTMLButtonElement>(null)
   const bulkMenuRef = useRef<HTMLDivElement>(null)
+  // 折叠状态:key 是 RenderedGroup.key。仅在 popup 生命周期内有效。
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
   const palette = colorForSpace(space.id)
 
   // focused 状态变化时滚到视口
@@ -129,6 +136,13 @@ export function SpaceItem({
 
   // 应用本地搜索过滤
   const visibleSpace = cardQuery ? filterSpaceTabs(space, cardQuery) : space
+
+  // 分组渲染结果(关闭开关时不计算,直接走平铺)
+  const rendered = useMemo(
+    () => (groupingEnabled ? groupTabsForRender(visibleSpace) : null),
+    [groupingEnabled, visibleSpace],
+  )
+  const useFlatList = !rendered || rendered.singleton
 
   // 选区按源顺序排好后给行用作拖拽 payload
   const selectedUrlsOrdered = useMemo(
@@ -310,6 +324,56 @@ export function SpaceItem({
         // 数据损坏,忽略
       }
     }
+  }
+
+  const renderTabRow = (tab: Tab, i: number) => (
+    <SpaceTabRow
+      key={`${tab.url}-${i}`}
+      tab={tab}
+      otherSpaces={otherSpaces}
+      palette={palette}
+      fromSpaceId={space.id}
+      selected={selectedSet.has(tab.url)}
+      selectedUrls={selectedUrlsOrdered}
+      {...(tab.groupKey && groupByKey.get(tab.groupKey)
+        ? {
+            groupBarClass: groupByKey.get(tab.groupKey)!.barClass,
+            ...(groupByKey.get(tab.groupKey)!.title !== undefined
+              ? { groupTitle: groupByKey.get(tab.groupKey)!.title }
+              : {}),
+          }
+        : {})}
+      onOpen={(url) => {
+        // 普通点击打开 = 清掉选区(避免选着不知不觉就丢了)
+        if (selectedSet.size > 0) clearSelection()
+        onTabOpen(url)
+      }}
+      onRemove={(url) => onTabRemove(space.id, url)}
+      onMove={(toId, url) => onTabMove(space.id, toId, url)}
+      onSelectToggle={handleSelectToggle}
+      onSelectRange={handleSelectRange}
+      onReorderInSpace={(fromUrls, position) => {
+        // 整组移动到 tab 行的前/后:从 urls 中拿出 fromUrls,保持源相对顺序后插入
+        const allUrls = space.tabs.map((x) => x.url)
+        const movingSet = new Set(fromUrls)
+        const without = allUrls.filter((u) => !movingSet.has(u))
+        const idx = without.indexOf(tab.url)
+        if (idx === -1) return
+        const insertAt = position === 'before' ? idx : idx + 1
+        const sortedFrom = allUrls.filter((u) => movingSet.has(u))
+        const next = [...without.slice(0, insertAt), ...sortedFrom, ...without.slice(insertAt)]
+        onTabReorder(space.id, next)
+      }}
+    />
+  )
+
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups((prev) => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      return next
+    })
   }
 
   // 拖放高亮样式:跨空间 tab drop 用 violet,live tab 加入用 indigo,空间合并用 emerald
@@ -627,48 +691,31 @@ export function SpaceItem({
 
         {/* 标签列表(收起时整段不渲染) */}
         {collapsed ? null : visibleSpace.tabs.length > 0 ? (
-          <div className="mt-3 space-y-0.5">
-            {visibleSpace.tabs.map((tab, i) => (
-              <SpaceTabRow
-                key={`${tab.url}-${i}`}
-                tab={tab}
-                otherSpaces={otherSpaces}
-                palette={palette}
-                fromSpaceId={space.id}
-                selected={selectedSet.has(tab.url)}
-                selectedUrls={selectedUrlsOrdered}
-                {...(tab.groupKey && groupByKey.get(tab.groupKey)
-                  ? {
-                      groupBarClass: groupByKey.get(tab.groupKey)!.barClass,
-                      ...(groupByKey.get(tab.groupKey)!.title !== undefined
-                        ? { groupTitle: groupByKey.get(tab.groupKey)!.title }
-                        : {}),
-                    }
-                  : {})}
-                onOpen={(url) => {
-                  // 普通点击打开 = 清掉选区(避免选着不知不觉就丢了)
-                  if (selectedSet.size > 0) clearSelection()
-                  onTabOpen(url)
-                }}
-                onRemove={(url) => onTabRemove(space.id, url)}
-                onMove={(toId, url) => onTabMove(space.id, toId, url)}
-                onSelectToggle={handleSelectToggle}
-                onSelectRange={handleSelectRange}
-                onReorderInSpace={(fromUrls, position) => {
-                  // 整组移动到 tab 行的前/后:从 urls 中拿出 fromUrls,保持源相对顺序后插入
-                  const allUrls = space.tabs.map((x) => x.url)
-                  const movingSet = new Set(fromUrls)
-                  const without = allUrls.filter((u) => !movingSet.has(u))
-                  const idx = without.indexOf(tab.url)
-                  if (idx === -1) return
-                  const insertAt = position === 'before' ? idx : idx + 1
-                  const sortedFrom = allUrls.filter((u) => movingSet.has(u))
-                  const next = [...without.slice(0, insertAt), ...sortedFrom, ...without.slice(insertAt)]
-                  onTabReorder(space.id, next)
-                }}
-              />
-            ))}
-          </div>
+          useFlatList ? (
+            <div className="mt-3 space-y-0.5">
+              {visibleSpace.tabs.map((tab, i) => renderTabRow(tab, i))}
+            </div>
+          ) : (
+            <div className="mt-3 space-y-0.5">
+              {rendered!.groups.map((g) => (
+                <TabGroupBlock
+                  key={g.key}
+                  group={g}
+                  otherLabel={t('categoryOther')}
+                  palette={palette}
+                  collapsed={collapsedGroups.has(g.key)}
+                  onToggleCollapse={() => toggleGroup(g.key)}
+                >
+                  {g.tabs.map((tab) =>
+                    renderTabRow(
+                      tab,
+                      visibleSpace.tabs.findIndex((tt) => tt.url === tab.url),
+                    ),
+                  )}
+                </TabGroupBlock>
+              ))}
+            </div>
+          )
         ) : cardQuery ? (
           <div className="mt-3 px-2 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
             {t('noSearchResults')}

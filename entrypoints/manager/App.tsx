@@ -25,7 +25,7 @@ import {
 } from '@/lib/export-import'
 import { useT } from '@/lib/i18n'
 import { useTheme, type ThemePref } from '@/lib/theme'
-import { useUseAsNewtab } from '@/lib/settings'
+import { useUseAsNewtab, useGroupTabsByDomain } from '@/lib/settings'
 import { discardInactiveInManagerWindow } from '@/lib/live-tabs'
 import { filterDatabase } from '@/lib/search'
 import { sortedForDisplay } from '@/lib/space'
@@ -45,6 +45,7 @@ export default function App() {
   // 在根上挂上主题切换的副作用(读 storage、监听系统)
   const { pref: themePref, setPref: setThemePref } = useTheme()
   const { enabled: newtabEnabled, setEnabled: setNewtabEnabled } = useUseAsNewtab()
+  const { enabled: groupingEnabled, setEnabled: setGroupingEnabled } = useGroupTabsByDomain()
 
   const [smartDialog, setSmartDialog] = useState<{
     clusters: ReturnType<typeof clusterTabs>
@@ -478,6 +479,8 @@ export default function App() {
         onExport={handleExport}
         onImport={handleImport}
         onHelp={() => setHelpDialog('help')}
+        groupingEnabled={groupingEnabled}
+        onToggleGrouping={() => setGroupingEnabled(!groupingEnabled)}
       />
       <main className="max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
         <aside className="lg:col-span-4 lg:sticky lg:top-20 lg:self-start">
@@ -523,6 +526,7 @@ export default function App() {
                 onTogglePinned={togglePinned}
                 onSetEmoji={(id, emoji) => setEmoji(id, emoji?.trim() ? emoji.trim() : undefined)}
                 onSetNote={(id, note) => setNote(id, note?.trim() ? note.trim() : undefined)}
+                groupingEnabled={groupingEnabled}
               />
             )
           ) : (

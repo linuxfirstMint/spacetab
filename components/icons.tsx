@@ -226,3 +226,12 @@ export function Globe({ className }: IconProps) {
     </svg>
   )
 }
+
+export function Group({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <rect x="3" y="3" width="18" height="8" rx="1.5" />
+      <rect x="3" y="13" width="18" height="8" rx="1.5" />
+    </svg>
+  )
+}
