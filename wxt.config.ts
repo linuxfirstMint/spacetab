@@ -11,7 +11,7 @@ export default defineConfig({
     name: '__MSG_extName__',
     description: '__MSG_extDesc__',
     default_locale: 'en',
-    version: '1.0.0',
+    version: '1.1.0',
     permissions: ['tabs', 'storage', 'tabGroups'],
     action: {
       default_title: '__MSG_extName__',
