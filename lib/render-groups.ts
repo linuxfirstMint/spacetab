@@ -13,7 +13,7 @@ export interface RenderedGroup {
   kind: 'native' | 'domain' | 'other'
   /** 原生分支:Chrome group 颜色;其他分支:undefined */
   nativeColor?: TabGroupColor
-  /** 域名分支:eTLD+1;原生分支不填 */
+  /** 域名分支:注册域名(末尾两段;不处理 ccTLD+2 如 co.uk);原生分支不填 */
   host?: string
   /** 代表性 favicon(组内第一个非空 favIconUrl);"其他"不填 */
   faviconUrl?: string
@@ -33,6 +33,8 @@ function hostOf(url: string): string | null {
   }
 }
 
+// 简单取末两段做"注册域名"近似。已知不处理 ccTLD+2(bbc.co.uk → co.uk),
+// 这是为了零依赖、与 lib/clustering.ts 行为一致而接受的折衷。
 function registeredDomain(host: string): string {
   const parts = host.split('.')
   if (parts.length <= 2) return host
