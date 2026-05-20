@@ -2,8 +2,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useT } from '@/lib/i18n'
 import { useTheme, THEME_PREFS, type ThemePref } from '@/lib/theme'
 import { useGroupTabsByDomain } from '@/lib/settings'
-import { Settings, Download, Upload } from './icons'
-import { Layers } from './icons'
+import { Settings, Download, Upload, Layers } from './icons'
 
 interface Props {
   onExport: () => void
