@@ -32,7 +32,7 @@ export function TabGroupBlock({
       <button
         type="button"
         onClick={onToggleCollapse}
-        className="w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left hover:bg-slate-50 dark:hover:bg-slate-800/60 transition-colors group/groupheader"
+        className="w-full flex items-center gap-2 px-1.5 py-1 rounded-md text-left cursor-pointer hover:bg-slate-50/60 dark:hover:bg-slate-800/40 transition-colors group/groupheader"
         aria-expanded={!collapsed}
       >
         <ChevronDown
@@ -59,7 +59,7 @@ export function TabGroupBlock({
           </span>
         )}
         <span
-          className={`flex-1 truncate text-[11.5px] leading-none ${
+          className={`flex-1 truncate text-[11px] leading-none ${
             group.kind === 'domain' ? 'font-mono' : 'font-medium'
           } text-slate-600 dark:text-slate-300`}
         >
@@ -71,7 +71,7 @@ export function TabGroupBlock({
           {group.tabs.length}
         </span>
       </button>
-      {!collapsed && <div className="mt-0.5 pl-5">{children}</div>}
+      {!collapsed && <div className="mt-0.5 pl-6">{children}</div>}
     </div>
   )
 }
