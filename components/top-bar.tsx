@@ -120,10 +120,10 @@ export function TopBar({
 
         {/* 右:按钮组靠右(flex-1 + justify-end) */}
         <div className="flex-1 flex items-center justify-end gap-2">
-          {/* 分组开关:active 时高亮,与 search/pin 等切换按钮风格一致 */}
+          {/* 分组开关:胶囊形,图标 + 文字,意图明确 */}
           <button
             onClick={onToggleGrouping}
-            className={`w-8 h-8 flex items-center justify-center rounded-md transition-colors ${
+            className={`h-8 pl-2 pr-2.5 flex items-center gap-1.5 rounded-md text-[13px] font-medium transition-colors ${
               groupingEnabled
                 ? 'text-slate-900 dark:text-slate-100 bg-slate-100 dark:bg-slate-800'
                 : 'text-slate-500 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-700'
@@ -133,6 +133,7 @@ export function TopBar({
             aria-pressed={groupingEnabled}
           >
             <Group className="w-4 h-4" />
+            <span>{t('tabGrouping')}</span>
           </button>
           <button
             onClick={onHelp}
