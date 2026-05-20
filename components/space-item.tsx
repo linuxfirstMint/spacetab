@@ -2,7 +2,6 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import type { Space, Tab } from '@/lib/schema'
 import { groupTabsForRender } from '@/lib/render-groups'
-import { useGroupTabsByDomain } from '@/lib/settings'
 import { TabGroupBlock } from './tab-group-block'
 import { colorForSpace, relativeTime } from '@/lib/ui-utils'
 import { useT } from '@/lib/i18n'
@@ -31,6 +30,7 @@ interface Props {
   onLiveTabDrop: (tabId: number, toSpaceId: string) => void
   onMerge: (fromId: string, toId: string) => void
   onReorder: (fromId: string, toId: string, position: 'before' | 'after') => void
+  groupingEnabled: boolean
 }
 
 type DragKind = 'tab' | 'liveTab' | 'space-merge' | 'space-before' | 'space-after' | null
@@ -55,6 +55,7 @@ export function SpaceItem({
   onLiveTabDrop,
   onMerge,
   onReorder,
+  groupingEnabled,
 }: Props) {
   const { t } = useT()
   const [editing, setEditing] = useState(false)
@@ -73,7 +74,6 @@ export function SpaceItem({
   const [bulkMenuPos, setBulkMenuPos] = useState<{ top: number; left: number }>({ top: 0, left: 0 })
   const bulkMoveBtnRef = useRef<HTMLButtonElement>(null)
   const bulkMenuRef = useRef<HTMLDivElement>(null)
-  const { enabled: groupingEnabled } = useGroupTabsByDomain()
   // 折叠状态:key 是 RenderedGroup.key。仅在 popup 生命周期内有效。
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
@@ -344,6 +344,7 @@ export function SpaceItem({
           }
         : {})}
       onOpen={(url) => {
+        // 普通点击打开 = 清掉选区(避免选着不知不觉就丢了)
         if (selectedSet.size > 0) clearSelection()
         onTabOpen(url)
       }}
@@ -352,6 +353,7 @@ export function SpaceItem({
       onSelectToggle={handleSelectToggle}
       onSelectRange={handleSelectRange}
       onReorderInSpace={(fromUrls, position) => {
+        // 整组移动到 tab 行的前/后:从 urls 中拿出 fromUrls,保持源相对顺序后插入
         const allUrls = space.tabs.map((x) => x.url)
         const movingSet = new Set(fromUrls)
         const without = allUrls.filter((u) => !movingSet.has(u))
