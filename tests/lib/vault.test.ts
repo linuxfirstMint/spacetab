@@ -10,6 +10,7 @@ import {
   moveLiveTabToSpace,
   mergeSessionTags,
 } from '@/lib/vault'
+import { DatabaseSchema } from '@/lib/schema'
 import { readSessionState } from '@/lib/session-state'
 
 const FOCUSED_WIN = 1
@@ -52,6 +53,7 @@ async function seedFocusedWindow(
 }
 
 beforeEach(async () => {
+  vi.stubGlobal('navigator', { locks: { request: async (_name: string, run: () => Promise<unknown>) => run() } })
   // 每次测试前创建一个 focused 窗口
   await fakeBrowser.windows.create({ focused: true })
   // 让 getURL 返回本扩展 origin,使自排除逻辑生效
@@ -166,7 +168,21 @@ describe('archiveCurrentWindowToSpace', () => {
 // switchToSpace
 // ---------------------------------------------------------------------------
 describe('switchToSpace', () => {
-  it('closes ambient (untagged) tabs when switching', async () => {
+  it('keeps unregistered pages alive if saving their recovery space fails', async () => {
+    await seedFocusedWindow([{ url: 'https://unsaved.com/' }])
+    vi.spyOn(chrome.storage.local, 'set').mockRejectedValueOnce(new Error('disk full'))
+    await expect(switchToSpace('other', [])).rejects.toThrow('Cannot safely save')
+    expect((await chrome.tabs.query({ windowId: FOCUSED_WIN })).some(t => t.url === 'https://unsaved.com/')).toBe(true)
+  })
+  it('does not move or reopen pages when switching to the current space', async () => {
+    await seedFocusedWindow([{ url: 'https://current.com/' }])
+    await chrome.storage.session.set({ currentSpaceId: 'current' })
+    const move = vi.spyOn(chrome.tabs, 'move')
+    await switchToSpace('current', [])
+    expect(move).not.toHaveBeenCalled()
+    expect((await chrome.tabs.query({ windowId: FOCUSED_WIN })).some(t => t.url === 'https://current.com/')).toBe(true)
+  })
+  it('preserves ambient tabs in a saved recovery space when switching', async () => {
     await seedFocusedWindow([{ url: 'https://ambient.com/' }])
 
     await switchToSpace('space-new', [])
@@ -174,6 +190,10 @@ describe('switchToSpace', () => {
     const remaining = await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN })
     const urls = remaining.map((t: chrome.tabs.Tab) => t.url)
     expect(urls).not.toContain('https://ambient.com/')
+    const all = await chrome.tabs.query({})
+    expect(all.some(t => t.url === 'https://ambient.com/')).toBe(true)
+    const saved = await chrome.storage.local.get('db')
+    expect(DatabaseSchema.parse(saved.db).spaces.some((s: { tabs: { url: string }[] }) => s.tabs.some(t => t.url === 'https://ambient.com/'))).toBe(true)
   })
 
   it('creates tabs for URLs in the target space that have no live vault tab', async () => {
