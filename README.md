@@ -1,3 +1,14 @@
+> **Experimental Arc-style fork:** toolbar action opens a Chrome side panel.
+> Next/previous Space shortcuts are configurable at `chrome://extensions/shortcuts`
+> (defaults: Ctrl/Command+Shift+Right/Left).
+> Unregistered tabs are saved into a recovery Space before switching, rather than closed.
+> Switch operations share a Web Lock across extension pages. No additional host access.
+> Build and unit tests pass; Chrome runtime testing is still required.
+> Known upstream limitations: session ownership is global rather than per window;
+> navigation, tab closure and browser restart restoration need further work.
+> Pinned browser tabs remain shared between Spaces. Side panel has a compact Japanese Space picker; full editing remains in the manager.
+> Build requirements: Chrome 116+ (Side Panel API), Node, pnpm.
+
 # SpaceTab
 
 [![Chrome Web Store](https://img.shields.io/chrome-web-store/v/eibplkakglandhanadkmbhifedkhdmhf?label=Chrome%20Web%20Store&logo=googlechrome&logoColor=white)](https://chromewebstore.google.com/detail/eibplkakglandhanadkmbhifedkhdmhf)

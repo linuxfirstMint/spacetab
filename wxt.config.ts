@@ -12,12 +12,16 @@ export default defineConfig({
     description: '__MSG_extDesc__',
     default_locale: 'en',
     version: '1.1.0',
-    permissions: ['tabs', 'storage', 'tabGroups'],
+    minimum_chrome_version: '116',
+    permissions: ['tabs', 'storage', 'tabGroups', 'sidePanel'],
+    side_panel: { default_path: 'sidepanel.html' },
     action: {
       default_title: '__MSG_extName__',
     },
     // 全局快捷键。用户可在 chrome://extensions/shortcuts 自定义
     commands: {
+      'next-space': { suggested_key: { default: 'Ctrl+Shift+Right', mac: 'Command+Shift+Right' }, description: 'Next Space' },
+      'previous-space': { suggested_key: { default: 'Ctrl+Shift+Left', mac: 'Command+Shift+Left' }, description: 'Previous Space' },
       _execute_action: {
         suggested_key: {
           default: 'Ctrl+Shift+S',
