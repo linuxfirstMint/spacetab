@@ -5,7 +5,8 @@ import {
   untagTabIdInState,
   dropSpaceFromState,
 } from './session-state'
-import type { Tab, TabGroup } from './schema'
+import { DatabaseSchema, type Tab, type TabGroup } from './schema'
+import { readDatabase, writeDatabase } from './storage'
 import { snapshotGroupsForTabs, restoreGroupsForTabs } from './tab-groups'
 
 const SKIP_URL_PREFIXES = ['chrome://', 'chrome-extension://', 'edge://', 'about:', 'view-source:']
@@ -145,12 +146,24 @@ export async function switchToSpace(
   toSpaceId: string,
   toSpaceTabs: Tab[],
   toSpaceGroups: TabGroup[] = [],
+  windowId?: number,
 ): Promise<{ failed: Tab[]; fromSpaceId: string | null }> {
-  const focusedId = await focusedWindowId()
+  // 同一扩展的管理页和侧栏共享锁，快速点击不能交错搬动标签。
+  return navigator.locks.request('spacetab-switch', () => switchToSpaceUnlocked(toSpaceId, toSpaceTabs, toSpaceGroups, windowId))
+}
+
+async function switchToSpaceUnlocked(
+  toSpaceId: string,
+  toSpaceTabs: Tab[],
+  toSpaceGroups: TabGroup[] = [],
+  windowId?: number,
+): Promise<{ failed: Tab[]; fromSpaceId: string | null }> {
+  const focusedId = windowId ?? await focusedWindowId()
   const visibleAll = await chrome.tabs.query({ windowId: focusedId, pinned: false })
 
   const state = await readSessionState()
   const fromSpaceId = state.currentSpaceId ?? null
+  if (fromSpaceId === toSpaceId) return { failed: [], fromSpaceId }
   const allTaggedIds = new Set<number>()
   for (const ids of Object.values(state.spaceIdToTabIds)) {
     for (const id of ids) allTaggedIds.add(id)
@@ -166,6 +179,31 @@ export async function switchToSpace(
     else ambientToClose.push(t.id)
   }
 
+  // 侧栏不是标签；临时锚点防止搬走最后一页时源窗口被关闭。
+  const allVisible = await chrome.tabs.query({ windowId: focusedId })
+  const anchor = allVisible.some(t => t.pinned || isSelfExtension(t.url))
+    ? null : await chrome.tabs.create({ windowId: focusedId, url: chrome.runtime.getURL('manager.html'), active: false })
+
+  // 未归档标签也必须保留；持久化失败时停止切换，避免丢失页面。
+  if (ambientToClose.length > 0) {
+    const { db, events } = await readDatabase()
+    if (events.length > 0) throw new Error('Cannot safely save current tabs')
+    const recoveryId = crypto.randomUUID()
+    const tabs = visibleAll.filter(t => ambientToClose.includes(t.id!)).map(t => ({
+      url: t.url ?? t.pendingUrl ?? 'about:blank', title: t.title ?? t.url ?? 'Tab',
+    }))
+    const now = Date.now()
+    const nextDb = DatabaseSchema.parse({ ...db, spaces: [...db.spaces, {
+      id: recoveryId, name: `Saved tabs ${new Date(now).toLocaleString()}`,
+      tabs, createdAt: now, updatedAt: now,
+    }] })
+    const saved = await writeDatabase(nextDb)
+    if (!saved.ok) throw new Error('Cannot safely save current tabs')
+    const vaultId = await ensureVaultWindow()
+    await writeSessionState(tagTabIdsForSpace(await readSessionState(), recoveryId, ambientToClose))
+    await chrome.tabs.move(ambientToClose, { windowId: vaultId, index: -1 })
+  }
+
   // Stash tagged tabs back into vault (they keep their existing tags)
   if (taggedToVault.length > 0) {
     try {
@@ -173,15 +211,6 @@ export async function switchToSpace(
       await chrome.tabs.move(taggedToVault, { windowId: vaultId, index: -1 })
     } catch {
       // ignore — best effort
-    }
-  }
-
-  // Close ambient (untagged) tabs
-  if (ambientToClose.length > 0) {
-    try {
-      await chrome.tabs.remove(ambientToClose)
-    } catch {
-      // ignore
     }
   }
 
@@ -286,6 +315,12 @@ export async function switchToSpace(
     await writeSessionState({ ...next, currentSpaceId: toSpaceId })
   }
 
+  const destination = await chrome.tabs.query({ windowId: focusedId })
+  const first = destination.find(t => typeof t.id === 'number' && !isSelfExtension(t.url))
+  if (first?.id !== undefined) {
+    await chrome.tabs.update(first.id, { active: true })
+    if (anchor?.id !== undefined) await chrome.tabs.remove(anchor.id)
+  }
   return { failed, fromSpaceId }
 }
 
