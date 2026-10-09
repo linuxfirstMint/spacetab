@@ -368,6 +368,7 @@ export default function App() {
     }
     try {
       const result = await switchToSpace(id, target.tabs, target.groups ?? [])
+      await load()
       if (result.failed.length > 0) {
         pushToast('error', t('toastFailedTabs', { n: result.failed.length }))
         return
