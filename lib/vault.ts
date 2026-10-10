@@ -59,10 +59,7 @@ export async function ensureVaultWindow(): Promise<number> {
   } catch {
     // 钉失败不致命,只是窗口名不会显示
   }
-  await writeSessionState({
-    vaultWindowId: win.id,
-    spaceIdToTabIds: {},
-  })
+  await writeSessionState({ ...state, vaultWindowId: win.id })
   return win.id
 }
 

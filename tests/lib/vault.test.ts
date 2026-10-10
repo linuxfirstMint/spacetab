@@ -196,6 +196,27 @@ describe('switchToSpace', () => {
     expect(DatabaseSchema.parse(saved.db).spaces.some((s: { tabs: { url: string }[] }) => s.tabs.some(t => t.url === 'https://ambient.com/'))).toBe(true)
   })
 
+  it('reuses the original tab when switching Alpha → Beta → Alpha and creating the vault', async () => {
+    await seedFocusedWindow([
+      { url: 'https://alpha.com/' },
+      { url: 'https://anchor.com/', pinned: true },
+    ])
+    const [originalAlphaTab] = (await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN }))
+      .filter((t: chrome.tabs.Tab) => t.url === 'https://alpha.com/')
+    expect(originalAlphaTab?.id).toBeDefined()
+    await archiveCurrentWindowToSpace('space-alpha')
+
+    await switchToSpace('space-beta', [{ url: 'https://beta.com/', title: 'Beta' }])
+    const stateWhileOnBeta = await readSessionState()
+    expect(stateWhileOnBeta.spaceIdToTabIds['space-alpha']).toContain(originalAlphaTab!.id)
+
+    await switchToSpace('space-alpha', [{ url: 'https://alpha.com/', title: 'Alpha' }])
+
+    const alphaTabs = (await fakeBrowser.tabs.query({})).filter((t: chrome.tabs.Tab) => t.url === 'https://alpha.com/')
+    expect(alphaTabs).toHaveLength(1)
+    expect(alphaTabs[0]?.id).toBe(originalAlphaTab!.id)
+  })
+
   it('creates tabs for URLs in the target space that have no live vault tab', async () => {
     // Start with empty focused window
     const spaceTabs = [
