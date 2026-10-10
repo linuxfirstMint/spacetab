@@ -8,6 +8,7 @@ import {
 import { DatabaseSchema, type Tab, type TabGroup } from './schema'
 import { readDatabase, writeDatabase } from './storage'
 import { snapshotGroupsForTabs, restoreGroupsForTabs } from './tab-groups'
+import { readLastActiveSpaceId, writeLastActiveSpaceId } from './last-active-space'
 
 const SKIP_URL_PREFIXES = ['chrome://', 'chrome-extension://', 'edge://', 'about:', 'view-source:']
 
@@ -16,10 +17,30 @@ function canRestore(url: string | undefined): url is string {
   return !SKIP_URL_PREFIXES.some((p) => url.startsWith(p))
 }
 
+function getTabUrl(tab: Pick<chrome.tabs.Tab, 'url' | 'pendingUrl'>): string | undefined {
+  return tab.url || tab.pendingUrl
+}
+
 function isSelfExtension(url: string | undefined): boolean {
   if (!url) return false
   const prefix = chrome.runtime.getURL('')
   return prefix.length > 0 && url.startsWith(prefix)
+}
+
+function selectNormalWindowId(windows: chrome.windows.Window[], vaultWindowId: number | null): number | undefined {
+  return windows.find(win => win.focused && win.id !== undefined && win.id !== vaultWindowId)?.id
+    ?? windows.find(win => win.id !== undefined && win.id !== vaultWindowId)?.id
+}
+
+async function waitForNormalWindow(vaultWindowId: number | null): Promise<number | undefined> {
+  const deadline = Date.now() + 5_000
+  while (Date.now() < deadline) {
+    const windows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+    const windowId = selectNormalWindowId(windows, vaultWindowId)
+    if (windowId !== undefined) return windowId
+    await new Promise(resolve => setTimeout(resolve, Math.min(100, deadline - Date.now())))
+  }
+  return undefined
 }
 
 async function focusedWindowId(): Promise<number> {
@@ -38,10 +59,17 @@ export async function ensureVaultWindow(): Promise<number> {
       // window was closed externally; fall through to recreate
     }
   }
+  // storage.session is cleared when Chrome restarts. Reuse the marker window
+  // Chrome restored instead of creating a second Vault window with a new ID.
+  const markerUrl = chrome.runtime.getURL('vault-marker.html')
+  const existingMarker = (await chrome.tabs.query({})).find(t => getTabUrl(t) === markerUrl && typeof t.windowId === 'number')
+  if (existingMarker?.windowId !== undefined) {
+    await writeSessionState({ ...state, vaultWindowId: existingMarker.windowId })
+    return existingMarker.windowId
+  }
   // 用扩展自带的 vault-marker.html 当锚点 tab:
   // 1) 让 dock / 任务栏的窗口标题写明这是 SpaceTab vault,用户一眼能认出来
   // 2) 钉住这个 tab,空 vault 时也不会被 Chrome 自动关掉
-  const markerUrl = chrome.runtime.getURL('vault-marker.html')
   const win = await chrome.windows.create({
     state: 'minimized',
     focused: false,
@@ -84,10 +112,10 @@ export async function snapshotCurrentWindow(): Promise<Tab[]> {
   const visible = await chrome.tabs.query({ windowId: focusedId, pinned: false })
   const out: Tab[] = []
   for (const t of visible) {
-    if (isSelfExtension(t.url)) continue
+    if (isSelfExtension(getTabUrl(t))) continue
     if (typeof t.id !== 'number') continue
-    if (!canRestore(t.url)) continue
-    const url = t.url!
+    const url = getTabUrl(t)
+    if (!canRestore(url)) continue
     out.push({
       url,
       title: t.title && t.title.length > 0 ? t.title : url,
@@ -107,9 +135,9 @@ export async function archiveCurrentWindowToSpace(
   // 先收集要归档的 chrome tabIds(只收符合条件的)
   const accepted: chrome.tabs.Tab[] = []
   for (const t of visible) {
-    if (isSelfExtension(t.url)) continue
+    if (isSelfExtension(getTabUrl(t))) continue
     if (typeof t.id !== 'number') continue
-    if (!canRestore(t.url)) continue
+    if (!canRestore(getTabUrl(t))) continue
     accepted.push(t)
     tabIdsToTag.push(t.id)
   }
@@ -118,7 +146,7 @@ export async function archiveCurrentWindowToSpace(
   const { tabIdToKey, groups } = await snapshotGroupsForTabs(tabIdsToTag)
 
   const archived: Tab[] = accepted.map((t) => {
-    const url = t.url!
+    const url = getTabUrl(t)!
     const tabIdNum = t.id as number
     const key = tabIdToKey.get(tabIdNum)
     const base: Tab = {
@@ -149,6 +177,115 @@ export async function switchToSpace(
   return navigator.locks.request('spacetab-switch', () => switchToSpaceUnlocked(toSpaceId, toSpaceTabs, toSpaceGroups, windowId))
 }
 
+/** Restore the last selected Space once per browser session, without treating
+ * Chrome-restored tabs that match it as unregistered ambient tabs. */
+export async function restoreLastActiveSpaceOnStartup(
+  report?: (entry: { phase: string; at: string; details?: Record<string, unknown> }) => void | Promise<void>,
+): Promise<boolean> {
+  return navigator.locks.request('spacetab-switch', async () => {
+    const diagnose = async (phase: string, details?: Record<string, unknown>) => {
+      await report?.({ phase, at: new Date().toISOString(), ...(details ? { details } : {}) })
+    }
+    await diagnose('restore-started')
+    const session = await readSessionState()
+    // A user selection or a previous startup restore already won this race.
+    if (session.currentSpaceId) {
+      await diagnose('skipped-current-space', { currentSpaceId: session.currentSpaceId })
+      return false
+    }
+
+    const lastSpaceId = await readLastActiveSpaceId()
+    if (!lastSpaceId) {
+      await diagnose('skipped-no-last-active-space')
+      return false
+    }
+    const { db, events } = await readDatabase()
+    if (events.length > 0) {
+      await diagnose('skipped-pending-database-events', { eventCount: events.length })
+      return false
+    }
+    const target = db.spaces.find(space => space.id === lastSpaceId)
+    if (!target) {
+      await diagnose('skipped-space-not-found')
+      return false
+    }
+    await diagnose('space-selected', { tabCount: target.tabs.length })
+
+    let allTabs = await chrome.tabs.query({})
+    const markerUrl = chrome.runtime.getURL('vault-marker.html')
+    let marker = allTabs.find(tab => getTabUrl(tab) === markerUrl && typeof tab.windowId === 'number')
+    let vaultWindowId = marker?.windowId ?? session.vaultWindowId
+
+    let windows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+    let windowId = selectNormalWindowId(windows, vaultWindowId)
+    if (windowId === undefined) {
+      await diagnose('waiting-for-normal-window', { windowCount: windows.length, vaultWindowId })
+      windowId = await waitForNormalWindow(vaultWindowId)
+      if (windowId === undefined) {
+        await diagnose('creating-normal-window')
+        // Chrome can restore only the minimized Vault marker when its startup
+        // preference is the New Tab page. Provide a normal destination window
+        // so the selected Space is still restored on a natural startup.
+        const created = await chrome.windows.create({
+          focused: true,
+          type: 'normal',
+          url: chrome.runtime.getURL('manager.html'),
+        })
+        if (typeof created?.id !== 'number') {
+          await diagnose('skipped-window-create-returned-no-id')
+          return false
+        }
+        windowId = created.id
+        await diagnose('created-normal-window', { windowId })
+      }
+      // Chrome may create the normal window before it restores its tabs.
+      // Query again after the wait so pending restored tabs are considered.
+      allTabs = await chrome.tabs.query({})
+      marker = allTabs.find(tab => getTabUrl(tab) === markerUrl && typeof tab.windowId === 'number')
+      vaultWindowId = marker?.windowId ?? session.vaultWindowId
+      windows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+      windowId = selectNormalWindowId(windows, vaultWindowId) ?? windowId
+    }
+    if (windowId === undefined) {
+      await diagnose('skipped-no-destination-window')
+      return false
+    }
+    await diagnose('destination-window-selected', { windowId, vaultWindowId, windowCount: windows.length })
+
+    // Match URL occurrences one-to-one. Counts preserve duplicate tabs and
+    // ensure extra same-URL tabs remain unregistered and are recovered below.
+    const remaining = new Map<string, number>()
+    for (const tab of target.tabs) remaining.set(tab.url, (remaining.get(tab.url) ?? 0) + 1)
+    const candidates = allTabs
+      .filter(tab =>
+        (tab.windowId === vaultWindowId || tab.windowId === windowId) &&
+        !tab.pinned && typeof tab.id === 'number' && canRestore(getTabUrl(tab)) && !isSelfExtension(getTabUrl(tab)),
+      )
+      .sort((a, b) => {
+        const aPriority = a.windowId === vaultWindowId ? 0 : 1
+        const bPriority = b.windowId === vaultWindowId ? 0 : 1
+        return aPriority - bPriority || (a.index ?? 0) - (b.index ?? 0)
+      })
+    const matchedIds: number[] = []
+    for (const tab of candidates) {
+      const url = getTabUrl(tab)!
+      const count = remaining.get(url) ?? 0
+      if (count <= 0) continue
+      matchedIds.push(tab.id!)
+      remaining.set(url, count - 1)
+    }
+
+    let nextSession = { ...session, vaultWindowId: vaultWindowId ?? null }
+    nextSession = tagTabIdsForSpace(nextSession, target.id, matchedIds)
+    await writeSessionState(nextSession)
+
+    await diagnose('switch-started', { matchingRestoredTabs: matchedIds.length })
+    const result = await switchToSpaceUnlocked(target.id, target.tabs, target.groups ?? [], windowId)
+    await diagnose('switch-finished', { failedTabCount: result.failed.length })
+    return result.failed.length === 0
+  })
+}
+
 async function switchToSpaceUnlocked(
   toSpaceId: string,
   toSpaceTabs: Tab[],
@@ -160,7 +297,10 @@ async function switchToSpaceUnlocked(
 
   const state = await readSessionState()
   const fromSpaceId = state.currentSpaceId ?? null
-  if (fromSpaceId === toSpaceId) return { failed: [], fromSpaceId }
+  if (fromSpaceId === toSpaceId) {
+    await writeLastActiveSpaceId(toSpaceId)
+    return { failed: [], fromSpaceId }
+  }
   const allTaggedIds = new Set<number>()
   for (const ids of Object.values(state.spaceIdToTabIds)) {
     for (const id of ids) allTaggedIds.add(id)
@@ -170,7 +310,7 @@ async function switchToSpaceUnlocked(
   const taggedToVault: number[] = []
   const ambientToClose: number[] = []
   for (const t of visibleAll) {
-    if (isSelfExtension(t.url)) continue
+    if (isSelfExtension(getTabUrl(t))) continue
     if (typeof t.id !== 'number') continue
     if (allTaggedIds.has(t.id)) taggedToVault.push(t.id)
     else ambientToClose.push(t.id)
@@ -178,7 +318,7 @@ async function switchToSpaceUnlocked(
 
   // 侧栏不是标签；临时锚点防止搬走最后一页时源窗口被关闭。
   const allVisible = await chrome.tabs.query({ windowId: focusedId })
-  const anchor = allVisible.some(t => t.pinned || isSelfExtension(t.url))
+  const anchor = allVisible.some(t => t.pinned || isSelfExtension(getTabUrl(t)))
     ? null : await chrome.tabs.create({ windowId: focusedId, url: chrome.runtime.getURL('manager.html'), active: false })
 
   // 未归档标签也必须保留；持久化失败时停止切换，避免丢失页面。
@@ -217,7 +357,7 @@ async function switchToSpaceUnlocked(
   const knownIds = state.spaceIdToTabIds[toSpaceId] ?? []
   const aliveKnownIds = await filterAlive(knownIds)
   const wantedUrls = new Set(toSpaceTabs.map((tt) => tt.url))
-  const liveUrls = new Set<string>()
+  const liveUrlCounts = new Map<string, number>()
   const wantedKnownIds: number[] = []
   const orphanKnownIds: number[] = []
   // url → groupKey,从 space 的 tabs 里抽出来,用于把 chrome tabId 归到分组桶
@@ -234,10 +374,11 @@ async function switchToSpaceUnlocked(
   for (const id of aliveKnownIds) {
     try {
       const tab = await chrome.tabs.get(id)
-      if (tab.url && wantedUrls.has(tab.url)) {
+      const tabUrl = getTabUrl(tab)
+      if (tabUrl && wantedUrls.has(tabUrl)) {
         wantedKnownIds.push(id)
-        liveUrls.add(tab.url)
-        const k = urlToKey.get(tab.url)
+        liveUrlCounts.set(tabUrl, (liveUrlCounts.get(tabUrl) ?? 0) + 1)
+        const k = urlToKey.get(tabUrl)
         if (k) pushBucket(k, id)
       } else {
         orphanKnownIds.push(id)
@@ -268,7 +409,11 @@ async function switchToSpaceUnlocked(
   const failed: Tab[] = []
   const newlyCreatedIds: number[] = []
   for (const tab of toSpaceTabs) {
-    if (liveUrls.has(tab.url)) continue
+    const liveCount = liveUrlCounts.get(tab.url) ?? 0
+    if (liveCount > 0) {
+      liveUrlCounts.set(tab.url, liveCount - 1)
+      continue
+    }
     try {
       // 冷启动场景(vault 里没有这条 URL 的真实标签):正常创建,
       // 让 Chrome 在后台加载真实内容(标题、favicon、页面)。不再 discard。
@@ -311,9 +456,10 @@ async function switchToSpaceUnlocked(
   ) {
     await writeSessionState({ ...next, currentSpaceId: toSpaceId })
   }
+  await writeLastActiveSpaceId(toSpaceId)
 
   const destination = await chrome.tabs.query({ windowId: focusedId })
-  const first = destination.find(t => typeof t.id === 'number' && !isSelfExtension(t.url))
+  const first = destination.find(t => typeof t.id === 'number' && !isSelfExtension(getTabUrl(t)))
   if (first?.id !== undefined) {
     await chrome.tabs.update(first.id, { active: true })
     if (anchor?.id !== undefined) await chrome.tabs.remove(anchor.id)

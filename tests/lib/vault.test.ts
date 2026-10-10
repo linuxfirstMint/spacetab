@@ -9,6 +9,7 @@ import {
   onWindowRemovedHandler,
   moveLiveTabToSpace,
   mergeSessionTags,
+  restoreLastActiveSpaceOnStartup,
 } from '@/lib/vault'
 import { DatabaseSchema } from '@/lib/schema'
 import { readSessionState } from '@/lib/session-state'
@@ -53,11 +54,12 @@ async function seedFocusedWindow(
 }
 
 beforeEach(async () => {
+  vi.clearAllMocks()
   vi.stubGlobal('navigator', { locks: { request: async (_name: string, run: () => Promise<unknown>) => run() } })
   // 每次测试前创建一个 focused 窗口
   await fakeBrowser.windows.create({ focused: true })
   // 让 getURL 返回本扩展 origin,使自排除逻辑生效
-  vi.spyOn(chrome.runtime, 'getURL').mockReturnValue('chrome-extension://test-id/')
+  vi.spyOn(chrome.runtime, 'getURL').mockImplementation((path = '') => `chrome-extension://test-id/${path}`)
   // Stub chrome.tabs.move since fakeBrowser doesn't implement it
   vi.spyOn(chrome.tabs, 'move').mockImplementation(stubTabsMove as typeof chrome.tabs.move)
 })
@@ -88,6 +90,38 @@ describe('ensureVaultWindow', () => {
     // The old window is gone so a new one must be created (different id or same recycled — just verify it's valid)
     const state = await readSessionState()
     expect(state.vaultWindowId).toBe(id2)
+  })
+
+  it('reuses a Chrome-restored marker window when session window IDs were lost', async () => {
+    const restored = await fakeBrowser.windows.create({ focused: false })
+    await fakeBrowser.tabs.create({
+      windowId: restored.id,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+    const vaultId = await ensureVaultWindow()
+
+    expect(vaultId).toBe(restored.id)
+    expect((await readSessionState()).vaultWindowId).toBe(restored.id)
+  })
+
+  it('reuses a restored marker window while its URL is still pending', async () => {
+    const restored = await fakeBrowser.windows.create({ focused: false })
+    const marker = await fakeBrowser.tabs.create({
+      windowId: restored.id,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+    vi.spyOn(chrome.tabs, 'query').mockImplementationOnce(async () => [{
+      ...marker,
+      url: undefined,
+      pendingUrl: 'chrome-extension://test-id/vault-marker.html',
+    } as chrome.tabs.Tab])
+
+    const vaultId = await ensureVaultWindow()
+
+    expect(vaultId).toBe(restored.id)
+    expect((await readSessionState()).vaultWindowId).toBe(restored.id)
   })
 })
 
@@ -168,6 +202,291 @@ describe('archiveCurrentWindowToSpace', () => {
 // switchToSpace
 // ---------------------------------------------------------------------------
 describe('switchToSpace', () => {
+  it('persists the last manually selected Space for the next browser startup', async () => {
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [], createdAt: 1, updatedAt: 1 }] },
+    })
+    await seedFocusedWindow([{ url: 'chrome-extension://test-id/vault-marker.html', pinned: true }])
+
+    await switchToSpace('alpha', [{ url: 'https://alpha.example/', title: 'Alpha' }])
+
+    expect((await chrome.storage.local.get('lastActiveSpaceId')).lastActiveSpaceId).toBe('alpha')
+  })
+
+  it('restores the last Space on startup without filing its matching restored tab as Saved tabs', async () => {
+    const spaceTabs = [
+      { url: 'https://www.google.com/?hl=ja', title: 'Google' },
+      { url: 'https://alpha.example/', title: 'Alpha' },
+    ]
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: spaceTabs, createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+    })
+    await seedFocusedWindow([{ url: 'https://www.google.com/?hl=ja' }])
+
+    const restored = await restoreLastActiveSpaceOnStartup()
+
+    expect(restored).toBe(true)
+    expect((await readSessionState()).currentSpaceId).toBe('alpha')
+    expect((await chrome.tabs.query({ windowId: FOCUSED_WIN })).map(t => t.url)).toEqual(
+      expect.arrayContaining(['https://www.google.com/?hl=ja', 'https://alpha.example/']),
+    )
+    const { db } = await import('@/lib/storage').then(m => m.readDatabase())
+    expect(db.spaces.map(s => s.name)).toEqual(['Alpha'])
+  })
+
+  it('matches restored tabs by pendingUrl before the navigation commits', async () => {
+    const savedUrl = 'https://alpha.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [{ url: savedUrl, title: 'Alpha' }], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+    })
+    await seedFocusedWindow([
+      { url: savedUrl },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+    const originalTab = (await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN })).find((tab: chrome.tabs.Tab) => tab.url === savedUrl)!
+    const queriedTabs = await chrome.tabs.query({})
+    const pendingTabs = queriedTabs.map(tab => ({
+      ...tab,
+      url: undefined,
+      pendingUrl: tab.url ?? tab.pendingUrl,
+    }))
+    const querySpy = vi.spyOn(chrome.tabs, 'query').mockImplementation(async (queryInfo: chrome.tabs.QueryInfo) => pendingTabs.filter((tab: chrome.tabs.Tab) =>
+      (queryInfo.windowId === undefined || tab.windowId === queryInfo.windowId) &&
+      (queryInfo.pinned === undefined || tab.pinned === queryInfo.pinned),
+    ))
+    const getSpy = vi.spyOn(chrome.tabs, 'get').mockImplementation(async (tabId: number) => {
+      const tab = pendingTabs.find(candidate => candidate.id === tabId)
+      if (!tab) throw new Error(`No tab with id ${tabId}`)
+      return tab
+    })
+    let restored: boolean
+    try {
+      restored = await restoreLastActiveSpaceOnStartup()
+    } finally {
+      querySpy.mockRestore()
+      getSpy.mockRestore()
+    }
+
+    expect(restored).toBe(true)
+    expect((await readSessionState()).currentSpaceId).toBe('alpha')
+    expect((await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN })).filter((tab: chrome.tabs.Tab) => tab.url === savedUrl).map((tab: chrome.tabs.Tab) => tab.id)).toContain(originalTab.id)
+    const { db } = await import('@/lib/storage').then(m => m.readDatabase())
+    expect(db.spaces.map(space => space.name)).toEqual(['Alpha'])
+  })
+
+  it('waits briefly for a normal window created just after startup begins', async () => {
+    const savedUrl = 'https://alpha.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [{ url: savedUrl, title: 'Alpha' }], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+    })
+    await fakeBrowser.tabs.create({
+      windowId: FOCUSED_WIN,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+    await chrome.storage.session.set({ vaultWindowId: FOCUSED_WIN })
+
+    const restorePromise = restoreLastActiveSpaceOnStartup()
+    await new Promise(resolve => setTimeout(resolve, 20))
+    const window = await fakeBrowser.windows.create({ focused: true })
+
+    expect(await restorePromise).toBe(true)
+    expect((await readSessionState()).currentSpaceId).toBe('alpha')
+    expect(typeof window.id).toBe('number')
+  })
+
+  it('creates a normal window when startup restores only the Vault marker window', async () => {
+    const savedUrl = 'https://alpha.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [{ url: savedUrl, title: 'Alpha' }], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+    })
+    await fakeBrowser.tabs.create({
+      windowId: FOCUSED_WIN,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+    await chrome.storage.session.set({ vaultWindowId: FOCUSED_WIN })
+    vi.spyOn(chrome.windows, 'getAll').mockImplementationOnce((() => Promise.resolve([])) as never)
+    vi.spyOn(Date, 'now').mockReturnValueOnce(0).mockReturnValue(6_000)
+
+    const createWindow = vi.spyOn(chrome.windows, 'create')
+    const diagnostics: Array<{ phase: string }> = []
+    expect(await restoreLastActiveSpaceOnStartup(entry => { diagnostics.push(entry) })).toBe(true)
+
+    const state = await readSessionState()
+    expect(createWindow).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'normal',
+      url: 'chrome-extension://test-id/manager.html',
+    }))
+    expect(diagnostics.map(entry => entry.phase)).toEqual(expect.arrayContaining([
+      'restore-started',
+      'waiting-for-normal-window',
+      'creating-normal-window',
+      'created-normal-window',
+      'switch-started',
+      'switch-finished',
+    ]))
+    expect(state.currentSpaceId).toBe('alpha')
+    vi.restoreAllMocks()
+  })
+
+  it('matches duplicate URLs one-to-one and preserves extra same-URL tabs as unregistered', async () => {
+    const sameUrl = 'https://same.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [{ url: sameUrl, title: 'Saved' }], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+    })
+    await seedFocusedWindow([
+      { url: sameUrl },
+      { url: sameUrl },
+      // A pinned utility tab prevents the fake-browser's known anchor-tab removal limitation.
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+
+    await restoreLastActiveSpaceOnStartup()
+
+    const allTabs = await chrome.tabs.query({})
+    expect(allTabs.filter(t => t.url === sameUrl)).toHaveLength(2)
+    const { db } = await import('@/lib/storage').then(m => m.readDatabase())
+    const recovery = db.spaces.find(s => s.name.startsWith('Saved tabs '))
+    expect(recovery?.tabs.filter(t => t.url === sameUrl)).toHaveLength(1)
+  })
+
+  it('keeps unrelated user tabs when restoring the saved Space', async () => {
+    const savedUrl = 'https://www.google.com/?hl=ja'
+    const userUrl = 'https://unregistered.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{
+        id: 'alpha', name: 'Alpha', tabs: [
+          { url: savedUrl, title: 'Google' },
+          { url: 'https://alpha.example/', title: 'Alpha' },
+        ], createdAt: 1, updatedAt: 1,
+      }] },
+      lastActiveSpaceId: 'alpha',
+    })
+    await seedFocusedWindow([
+      { url: savedUrl },
+      { url: userUrl },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+
+    await restoreLastActiveSpaceOnStartup()
+
+    expect((await chrome.tabs.query({})).some(tab => tab.url === userUrl)).toBe(true)
+    const { db } = await import('@/lib/storage').then(m => m.readDatabase())
+    expect(db.spaces.find(space => space.name.startsWith('Saved tabs '))?.tabs.map(tab => tab.url)).toContain(userUrl)
+  })
+
+  it('restores missing duplicate URL occurrences without collapsing saved tabs', async () => {
+    const sameUrl = 'https://same-saved.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{
+        id: 'alpha', name: 'Alpha', tabs: [
+          { url: sameUrl, title: 'First' },
+          { url: sameUrl, title: 'Second' },
+        ], createdAt: 1, updatedAt: 1,
+      }] },
+      lastActiveSpaceId: 'alpha',
+    })
+    await seedFocusedWindow([
+      { url: sameUrl },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+
+    await restoreLastActiveSpaceOnStartup()
+
+    expect((await chrome.tabs.query({ windowId: FOCUSED_WIN })).filter(tab => tab.url === sameUrl)).toHaveLength(2)
+  })
+
+  it('does not duplicate tabs when startup restoration races with itself', async () => {
+    let tail = Promise.resolve()
+    vi.stubGlobal('navigator', {
+      locks: {
+        request: async (_name: string, run: () => Promise<unknown>) => {
+          const previous = tail
+          let release!: () => void
+          tail = new Promise<void>(resolve => { release = resolve })
+          await previous
+          try { return await run() } finally { release() }
+        },
+      },
+    })
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [{ url: 'https://alpha.example/', title: 'Alpha' }], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+    })
+
+    await Promise.all([restoreLastActiveSpaceOnStartup(), restoreLastActiveSpaceOnStartup()])
+
+    expect((await chrome.tabs.query({})).filter(t => t.url === 'https://alpha.example/')).toHaveLength(1)
+  })
+
+  it('keeps a manual Space selection that acquired the switch lock before startup restore', async () => {
+    let tail = Promise.resolve()
+    vi.stubGlobal('navigator', {
+      locks: {
+        request: async (_name: string, run: () => Promise<unknown>) => {
+          const previous = tail
+          let release!: () => void
+          tail = new Promise<void>(resolve => { release = resolve })
+          await previous
+          try { return await run() } finally { release() }
+        },
+      },
+    })
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [
+        { id: 'alpha', name: 'Alpha', tabs: [{ url: 'https://alpha.example/', title: 'Alpha' }], createdAt: 1, updatedAt: 1 },
+        { id: 'beta', name: 'Beta', tabs: [{ url: 'https://beta.example/', title: 'Beta' }], createdAt: 2, updatedAt: 2 },
+      ] },
+      lastActiveSpaceId: 'alpha',
+    })
+
+    await Promise.all([
+      switchToSpace('beta', [{ url: 'https://beta.example/', title: 'Beta' }]),
+      restoreLastActiveSpaceOnStartup(),
+    ])
+
+    expect((await readSessionState()).currentSpaceId).toBe('beta')
+    expect((await chrome.storage.local.get('lastActiveSpaceId')).lastActiveSpaceId).toBe('beta')
+    expect((await chrome.tabs.query({})).filter(tab => tab.url === 'https://beta.example/')).toHaveLength(1)
+    expect((await chrome.tabs.query({})).some(tab => tab.url === 'https://alpha.example/')).toBe(false)
+  })
+
+  it('skips restoration without changing session or opening tabs when the saved Space was deleted', async () => {
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [] },
+      lastActiveSpaceId: 'deleted-space',
+    })
+    await seedFocusedWindow([{ url: 'https://ambient.example/' }])
+    const diagnostics: Array<{ phase: string }> = []
+
+    expect(await restoreLastActiveSpaceOnStartup(entry => { diagnostics.push(entry) })).toBe(false)
+
+    expect((await readSessionState()).currentSpaceId).toBeNull()
+    expect((await chrome.storage.local.get('lastActiveSpaceId')).lastActiveSpaceId).toBe('deleted-space')
+    expect((await chrome.tabs.query({})).some(tab => tab.url === 'https://ambient.example/')).toBe(true)
+    expect(diagnostics.map(entry => entry.phase)).toContain('skipped-space-not-found')
+  })
+
+  it('restores into only the focused normal window and leaves other windows alone', async () => {
+    const otherWindow = await fakeBrowser.windows.create({ focused: false })
+    await fakeBrowser.tabs.create({ windowId: otherWindow.id, url: 'https://other-window.example/' } as chrome.tabs.CreateProperties)
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [{ url: 'https://alpha.example/', title: 'Alpha' }], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+    })
+
+    await restoreLastActiveSpaceOnStartup()
+
+    expect((await chrome.tabs.query({ windowId: FOCUSED_WIN })).some(tab => tab.url === 'https://alpha.example/')).toBe(true)
+    expect((await chrome.tabs.query({ windowId: otherWindow.id })).map(tab => tab.url)).toContain('https://other-window.example/')
+  })
+
   it('keeps unregistered pages alive if saving their recovery space fails', async () => {
     await seedFocusedWindow([{ url: 'https://unsaved.com/' }])
     vi.spyOn(chrome.storage.local, 'set').mockRejectedValueOnce(new Error('disk full'))
@@ -181,6 +500,17 @@ describe('switchToSpace', () => {
     await switchToSpace('current', [])
     expect(move).not.toHaveBeenCalled()
     expect((await chrome.tabs.query({ windowId: FOCUSED_WIN })).some(t => t.url === 'https://current.com/')).toBe(true)
+  })
+  it('restores every occurrence of a duplicate URL instead of collapsing the tabs', async () => {
+    const sameUrl = 'https://duplicate.example/'
+    await seedFocusedWindow([{ url: 'chrome-extension://test-id/vault-marker.html', pinned: true }])
+
+    await switchToSpace('duplicate-space', [
+      { url: sameUrl, title: 'First duplicate' },
+      { url: sameUrl, title: 'Second duplicate' },
+    ])
+
+    expect((await chrome.tabs.query({ windowId: FOCUSED_WIN })).filter(tab => tab.url === sameUrl)).toHaveLength(2)
   })
   it('preserves ambient tabs in a saved recovery space when switching', async () => {
     await seedFocusedWindow([{ url: 'https://ambient.com/' }])
