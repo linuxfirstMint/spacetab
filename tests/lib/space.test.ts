@@ -15,6 +15,7 @@ import {
   reorderSpaces,
   reorderTabsInSpace,
   setSpaceEmoji,
+  setSpaceColor,
   setSpaceNote,
   setSpacePinned,
   sortedForDisplay,
@@ -337,10 +338,31 @@ describe('duplicateSpace', () => {
     expect(next.spaces[1]!.tabs[0]).not.toBe(db.spaces[0]!.tabs[0])
   })
 
+  it('copies a user-selected Space color', () => {
+    const db = makeDb([makeSpace({ id: 'sp1', color: 'cyan' })])
+    expect(duplicateSpace(db, 'sp1', 'sp2', 'Copy', 300).spaces[1]?.color).toBe('cyan')
+  })
+
   it('returns same reference when source not found', () => {
     const db = makeDb([makeSpace({ id: 'sp1' })])
     const next = duplicateSpace(db, 'ghost', 'sp2', 'X', 300)
     expect(next).toBe(db)
+  })
+})
+
+describe('setSpaceColor', () => {
+  it('sets and clears a selected color while updating the Space timestamp', () => {
+    const db = makeDb([makeSpace({ color: 'amber', updatedAt: 100 })])
+    const changed = setSpaceColor(db, 'sp1', 'violet', 300)
+    expect(changed.spaces[0]).toMatchObject({ color: 'violet', updatedAt: 300 })
+    const reset = setSpaceColor(changed, 'sp1', undefined, 400)
+    expect(reset.spaces[0]).toMatchObject({ updatedAt: 400 })
+    expect(reset.spaces[0]).not.toHaveProperty('color')
+  })
+
+  it('keeps the database reference when the color is unchanged', () => {
+    const db = makeDb([makeSpace({ color: 'cyan' })])
+    expect(setSpaceColor(db, 'sp1', 'cyan', 300)).toBe(db)
   })
 })
 

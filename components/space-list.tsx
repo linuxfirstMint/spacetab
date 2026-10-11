@@ -1,4 +1,4 @@
-import type { Space } from '@/lib/schema'
+import type { Space, SpaceColor } from '@/lib/schema'
 import { useT } from '@/lib/i18n'
 import { SpaceItem } from './space-item'
 import { Layers } from './icons'
@@ -30,6 +30,7 @@ interface Props {
   onReorder: (fromId: string, toId: string, position: 'before' | 'after') => void
   onTogglePinned: (id: string) => void
   onSetEmoji: (id: string, emoji: string | undefined) => void
+  onSetColor: (id: string, color: SpaceColor | undefined) => void
   onSetNote: (id: string, note: string | undefined) => void
   groupingEnabled: boolean
 }
@@ -60,6 +61,7 @@ export function SpaceList({
   onReorder,
   onTogglePinned,
   onSetEmoji,
+  onSetColor,
   onSetNote,
   groupingEnabled,
 }: Props) {
@@ -106,6 +108,7 @@ export function SpaceList({
           onReorder={onReorder}
           onTogglePinned={onTogglePinned}
           onSetEmoji={onSetEmoji}
+          onSetColor={onSetColor}
           onSetNote={onSetNote}
           groupingEnabled={groupingEnabled}
         />
