@@ -38,7 +38,7 @@ export default function App() {
     load, archive, archiveNew, rename, remove, duplicate,
     removeTab, moveTab, merge, importDb, setTabPinned, restoreTabUrl,
     createFolder, renameFolder, deleteFolder, setFolderCollapsed, reorderFolders, moveTabToFolder,
-    setEmoji, setNote, togglePinned, reorder, reorderTabs,
+    setEmoji, setColor, setNote, togglePinned, reorder, reorderTabs,
     removeTabs, moveTabsBatch,
     dismissToast, pushToast,
   } = useSpaceStore()
@@ -474,7 +474,7 @@ export default function App() {
       perform: () => setHelpDialog('help'),
     })
     for (const sp of sortedSpaces) {
-      const palette = colorForSpace(sp.id)
+      const palette = colorForSpace(sp.id, sp.color)
       list.push({
         id: `switch-${sp.id}`,
         group: 'space',
@@ -552,6 +552,7 @@ export default function App() {
                 onReorder={handleReorder}
                 onTogglePinned={togglePinned}
                 onSetEmoji={(id, emoji) => setEmoji(id, emoji?.trim() ? emoji.trim() : undefined)}
+                onSetColor={setColor}
                 onSetNote={(id, note) => setNote(id, note?.trim() ? note.trim() : undefined)}
                 groupingEnabled={groupingEnabled}
               />

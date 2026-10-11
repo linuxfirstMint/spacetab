@@ -1,6 +1,8 @@
+import type { SpaceColor } from './schema'
+
 export interface SpacePalette {
   hex: string
-  key: 'indigo' | 'emerald' | 'amber' | 'pink' | 'violet' | 'cyan'
+  key: SpaceColor
   bar: string
   dot: string
   countBg: string
@@ -8,6 +10,7 @@ export interface SpacePalette {
   countRing: string
   countRingHover: string
   switchBg: string
+  switchText: string
   switchRing: string
   rowAccent: string
   rowHoverBg: string
@@ -27,6 +30,7 @@ const PALETTE: Record<SpacePalette['key'], SpacePalette> = {
     countRing: 'ring-indigo-200/60 dark:ring-indigo-700/40',
     countRingHover: 'group-hover/card:ring-indigo-300 dark:group-hover/card:ring-indigo-600/70',
     switchBg: 'bg-indigo-600 hover:bg-indigo-700',
+    switchText: 'text-white',
     switchRing: 'focus-visible:ring-indigo-500/40',
     rowAccent: 'group-hover/row:border-indigo-500',
     rowHoverBg: 'hover:bg-indigo-50/60 dark:hover:bg-indigo-900/15',
@@ -44,6 +48,7 @@ const PALETTE: Record<SpacePalette['key'], SpacePalette> = {
     countRing: 'ring-emerald-200/60 dark:ring-emerald-700/40',
     countRingHover: 'group-hover/card:ring-emerald-300 dark:group-hover/card:ring-emerald-600/70',
     switchBg: 'bg-emerald-600 hover:bg-emerald-700',
+    switchText: 'text-slate-950 hover:text-white',
     switchRing: 'focus-visible:ring-emerald-500/40',
     rowAccent: 'group-hover/row:border-emerald-500',
     rowHoverBg: 'hover:bg-emerald-50/60 dark:hover:bg-emerald-900/15',
@@ -61,6 +66,7 @@ const PALETTE: Record<SpacePalette['key'], SpacePalette> = {
     countRing: 'ring-amber-200/60 dark:ring-amber-700/40',
     countRingHover: 'group-hover/card:ring-amber-300 dark:group-hover/card:ring-amber-600/70',
     switchBg: 'bg-amber-600 hover:bg-amber-700',
+    switchText: 'text-slate-950 hover:text-white',
     switchRing: 'focus-visible:ring-amber-500/40',
     rowAccent: 'group-hover/row:border-amber-500',
     rowHoverBg: 'hover:bg-amber-50/60 dark:hover:bg-amber-900/15',
@@ -78,6 +84,7 @@ const PALETTE: Record<SpacePalette['key'], SpacePalette> = {
     countRing: 'ring-pink-200/60 dark:ring-pink-700/40',
     countRingHover: 'group-hover/card:ring-pink-300 dark:group-hover/card:ring-pink-600/70',
     switchBg: 'bg-pink-600 hover:bg-pink-700',
+    switchText: 'text-white',
     switchRing: 'focus-visible:ring-pink-500/40',
     rowAccent: 'group-hover/row:border-pink-500',
     rowHoverBg: 'hover:bg-pink-50/60 dark:hover:bg-pink-900/15',
@@ -95,6 +102,7 @@ const PALETTE: Record<SpacePalette['key'], SpacePalette> = {
     countRing: 'ring-violet-200/60 dark:ring-violet-700/40',
     countRingHover: 'group-hover/card:ring-violet-300 dark:group-hover/card:ring-violet-600/70',
     switchBg: 'bg-violet-600 hover:bg-violet-700',
+    switchText: 'text-white',
     switchRing: 'focus-visible:ring-violet-500/40',
     rowAccent: 'group-hover/row:border-violet-500',
     rowHoverBg: 'hover:bg-violet-50/60 dark:hover:bg-violet-900/15',
@@ -112,6 +120,7 @@ const PALETTE: Record<SpacePalette['key'], SpacePalette> = {
     countRing: 'ring-cyan-200/60 dark:ring-cyan-700/40',
     countRingHover: 'group-hover/card:ring-cyan-300 dark:group-hover/card:ring-cyan-600/70',
     switchBg: 'bg-cyan-600 hover:bg-cyan-700',
+    switchText: 'text-slate-950 hover:text-white',
     switchRing: 'focus-visible:ring-cyan-500/40',
     rowAccent: 'group-hover/row:border-cyan-500',
     rowHoverBg: 'hover:bg-cyan-50/60 dark:hover:bg-cyan-900/15',
@@ -121,9 +130,19 @@ const PALETTE: Record<SpacePalette['key'], SpacePalette> = {
   },
 }
 
-const KEYS: SpacePalette['key'][] = ['indigo', 'emerald', 'amber', 'pink', 'violet', 'cyan']
+const KEYS: SpaceColor[] = ['indigo', 'emerald', 'amber', 'pink', 'violet', 'cyan']
 
-export function colorForSpace(id: string): SpacePalette {
+export const SPACE_COLOR_OPTIONS: { key: SpaceColor; labelKey: string }[] = [
+  { key: 'indigo', labelKey: 'colorIndigo' },
+  { key: 'emerald', labelKey: 'colorEmerald' },
+  { key: 'amber', labelKey: 'colorAmber' },
+  { key: 'pink', labelKey: 'colorPink' },
+  { key: 'violet', labelKey: 'colorViolet' },
+  { key: 'cyan', labelKey: 'colorCyan' },
+]
+
+export function colorForSpace(id: string, override?: SpaceColor): SpacePalette {
+  if (override) return PALETTE[override]
   let h = 0
   for (const ch of id) h = (h * 31 + ch.charCodeAt(0)) | 0
   return PALETTE[KEYS[Math.abs(h) % KEYS.length]!]

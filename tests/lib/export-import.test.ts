@@ -44,6 +44,16 @@ describe('serializeForExport / parseImport round trip', () => {
     expect(result.ok).toBe(true)
     if (result.ok) expect(result.file.db).toEqual(foldered)
   })
+
+  it('preserves selected Space colors in backup files', () => {
+    const colored: Database = {
+      ...sampleDb,
+      spaces: [{ ...sampleDb.spaces[0]!, color: 'cyan' }],
+    }
+    const result = parseImport(serializeForExport(colored, 2345))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.file.db.spaces[0]?.color).toBe('cyan')
+  })
 })
 
 describe('parseImport rejection cases', () => {

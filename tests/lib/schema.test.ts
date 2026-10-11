@@ -28,6 +28,14 @@ describe('safeParseDatabase', () => {
     expect(next.ok && next.db.spaces[0]?.tabs[0]).toMatchObject({ url: 'https://saved.example/', currentUrl: 'https://current.example/', pinned: true })
   })
 
+  it('keeps legacy Space colors optional and round-trips selected theme colors', () => {
+    const legacy = safeParseDatabase(validDb)
+    const colored = safeParseDatabase({ ...validDb, spaces: [{ ...validDb.spaces[0], color: 'violet' }] })
+    expect(legacy.ok && legacy.db.spaces[0]).not.toHaveProperty('color')
+    expect(colored.ok && colored.db.spaces[0]?.color).toBe('violet')
+    expect(safeParseDatabase({ ...validDb, spaces: [{ ...validDb.spaces[0], color: 'ultraviolet' }] }).ok).toBe(false)
+  })
+
   it('round-trips flat folder membership and collapsed state while keeping legacy spaces valid', () => {
     const legacy = safeParseDatabase(validDb)
     const withFolder = safeParseDatabase({

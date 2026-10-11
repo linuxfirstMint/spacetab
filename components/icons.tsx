@@ -106,6 +106,18 @@ export function Sparkle({ className }: IconProps) {
   )
 }
 
+export function Palette({ className }: IconProps) {
+  return (
+    <svg {...base} className={className}>
+      <path d="M12 3a9 9 0 1 0 0 18h1.2a2 2 0 0 0 1.4-3.4 1.5 1.5 0 0 1 1.1-2.6h1.1A4.2 4.2 0 0 0 21 10.8C21 6.5 17 3 12 3Z" />
+      <circle cx="7.5" cy="11" r="1" />
+      <circle cx="10" cy="7.5" r="1" />
+      <circle cx="14" cy="7.5" r="1" />
+      <circle cx="17" cy="10.5" r="1" />
+    </svg>
+  )
+}
+
 export function GripVertical({ className }: IconProps) {
   return (
     <svg

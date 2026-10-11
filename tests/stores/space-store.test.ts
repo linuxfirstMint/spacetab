@@ -53,6 +53,19 @@ describe('useSpaceStore.rename', () => {
   })
 })
 
+describe('useSpaceStore.setColor', () => {
+  it('persists a selected Space color and resets to automatic by removing the override', async () => {
+    const id = await useSpaceStore.getState().archiveNew('Colored', [])
+    await useSpaceStore.getState().setColor(id!, 'violet')
+    expect(useSpaceStore.getState().db.spaces[0]?.color).toBe('violet')
+    expect((await fakeBrowser.storage.local.get('db')).db).toEqual(useSpaceStore.getState().db)
+
+    await useSpaceStore.getState().setColor(id!, undefined)
+    expect(useSpaceStore.getState().db.spaces[0]).not.toHaveProperty('color')
+    expect((await fakeBrowser.storage.local.get('db')).db).toEqual(useSpaceStore.getState().db)
+  })
+})
+
 describe('useSpaceStore.remove', () => {
   it('deletes a space', async () => {
     const id = await useSpaceStore.getState().archiveNew('X', [])

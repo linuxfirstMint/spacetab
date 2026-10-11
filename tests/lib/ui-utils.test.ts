@@ -39,6 +39,12 @@ describe('colorForSpace', () => {
     }
   })
 
+  it('uses an explicit Space color while keeping the legacy ID-derived default', () => {
+    const id = 'my-space-id'
+    expect(colorForSpace(id, 'cyan').key).toBe('cyan')
+    expect(colorForSpace(id).key).toBe(colorForSpace(id, undefined).key)
+  })
+
   it('handles empty string', () => {
     const result = colorForSpace('')
     expect(VALID_HEXES).toContain(result.hex)
@@ -59,6 +65,7 @@ describe('colorForSpace', () => {
     expect(palette.countText).toMatch(/^text-/)
     expect(palette.countRing).toMatch(/^ring-/)
     expect(palette.switchBg).toMatch(/^bg-/)
+    expect(palette.switchText).toMatch(/^text-/)
     expect(palette.switchRing).toMatch(/^focus-visible:ring-/)
     expect(palette.rowAccent).toMatch(/^group-hover\/row:border-/)
   })
