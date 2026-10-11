@@ -4,6 +4,7 @@ import { sortedForDisplay, updateTabCurrentUrl } from '@/lib/space'
 import { onTabRemovedHandler, onWindowRemovedHandler, readActiveSpaceForWindow, restoreLastActiveSpaceOnStartup, switchToSpace } from '@/lib/vault'
 import { appendStartupDiagnostic } from '@/lib/startup-diagnostics'
 import { readLastActiveTab, writeLastActiveTab } from '@/lib/last-active-tab'
+import { initializeAutoArchive, markAutoArchiveTabActivated, markAutoArchiveTabUsed, runAutoArchiveSweep } from '@/lib/auto-archive'
 
 const NATURAL_STARTUP_DIAGNOSTIC_BUILD = 'natural-startup-local-diagnostic-v1'
 const STARTUP_DIAGNOSTICS_KEY = 'codexNaturalStartupDiagnostics'
@@ -89,6 +90,7 @@ export default defineBackground(() => {
   exposeStartupStage('background-entered')
   console.info('[SpaceTab] Background entry', NATURAL_STARTUP_DIAGNOSTIC_BUILD, new Date().toISOString())
   void recordStartupDiagnostic('background-entered')
+  void initializeAutoArchive()
 
   console.info('[SpaceTab] Requesting side panel behavior', NATURAL_STARTUP_DIAGNOSTIC_BUILD)
   try {
@@ -117,6 +119,7 @@ export default defineBackground(() => {
         try {
           const restored = await restoreLastActiveSpaceOnStartup(report)
           exposeStartupStage(restored ? 'startup-restored' : 'startup-skipped')
+          await runAutoArchiveSweep()
           await report({ phase: restored ? 'startup-restored' : 'startup-skipped', at: new Date().toISOString() })
           console.info(`[SpaceTab] Startup restore ${restored ? 'completed' : 'skipped'}`)
         } catch (error) {
@@ -160,6 +163,7 @@ export default defineBackground(() => {
   })
 
   chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+    void markAutoArchiveTabActivated(tabId, windowId).then(() => runAutoArchiveSweep()).catch(console.error)
     if (closingWindowIds.has(windowId)) return
     // Queue behind a Space switch, then verify this event still describes the
     // active tab. That drops stale activation events from rapid tab changes.
@@ -188,7 +192,12 @@ export default defineBackground(() => {
     })
   })
 
+  chrome.tabs.onCreated.addListener((tab) => {
+    if (typeof tab.id === 'number') void markAutoArchiveTabUsed(tab.id).then(() => runAutoArchiveSweep()).catch(console.error)
+  })
+
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    if (changeInfo.status === 'complete' || changeInfo.url) void runAutoArchiveSweep().catch(console.error)
     const url = changeInfo.url
     if (!url || !tab.active || url.startsWith('chrome://') || url.startsWith('chrome-extension://')) return
     void navigator.locks.request('spacetab-switch', async () => {
@@ -246,5 +255,9 @@ export default defineBackground(() => {
   chrome.windows.onRemoved.addListener((winId) => {
     closingWindowIds.delete(winId)
     void onWindowRemovedHandler(winId)
+  })
+
+  chrome.windows.onFocusChanged.addListener(() => {
+    void runAutoArchiveSweep().catch(console.error)
   })
 })

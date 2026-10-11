@@ -86,6 +86,15 @@ export const DatabaseSchema = z.object({
 })
 export type Database = z.infer<typeof DatabaseSchema>
 
+/** User opts in explicitly; omitted settings keep automatic archiving disabled. */
+export const AutoArchiveSettingsSchema = z.object({ enabled: z.boolean(), inactivityHours: z.number().int().min(1).max(720) })
+export type AutoArchiveSettings = z.infer<typeof AutoArchiveSettingsSchema>
+export const AutoArchivedTabSchema = z.object({
+  id: z.string().min(1), url: z.string().url(), title: z.string(), favIconUrl: z.string().url().optional(),
+  sourceSpaceId: z.string().nullable(), archivedAt: z.number(),
+})
+export type AutoArchivedTab = z.infer<typeof AutoArchivedTabSchema>
+
 export const EMPTY_DB: Database = { version: 1, spaces: [] }
 
 export type ParseResult =
