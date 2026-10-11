@@ -28,6 +28,13 @@ describe('safeParseDatabase', () => {
     expect(next.ok && next.db.spaces[0]?.tabs[0]).toMatchObject({ url: 'https://saved.example/', currentUrl: 'https://current.example/', pinned: true })
   })
 
+  it('accepts optional profile Favorites while keeping old database files valid', () => {
+    expect(safeParseDatabase(validDb).ok).toBe(true)
+    const next = safeParseDatabase({ ...validDb, favorites: [{ url: 'https://favorite.example/', title: 'Favorite' }] })
+    expect(next.ok && next.db.favorites).toEqual([{ url: 'https://favorite.example/', title: 'Favorite' }])
+    expect(safeParseDatabase({ ...validDb, favorites: Array.from({ length: 13 }, (_, index) => ({ url: `https://site${index}.example/`, title: 'Site' })) }).ok).toBe(false)
+  })
+
   it('keeps legacy Space colors optional and round-trips selected theme colors', () => {
     const legacy = safeParseDatabase(validDb)
     const colored = safeParseDatabase({ ...validDb, spaces: [{ ...validDb.spaces[0], color: 'violet' }] })

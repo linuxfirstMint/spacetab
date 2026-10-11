@@ -1,4 +1,4 @@
-import type { Space, SpaceColor } from '@/lib/schema'
+import type { Space, SpaceColor, Tab } from '@/lib/schema'
 import { useT } from '@/lib/i18n'
 import { SpaceItem } from './space-item'
 import { Layers } from './icons'
@@ -14,6 +14,8 @@ interface Props {
   onTabOpen: (url: string) => void
   onTabRemove: (spaceId: string, url: string) => void
   onTabPin: (spaceId: string, url: string, pinned: boolean) => void
+  onTabFavorite: (spaceId: string, tab: Tab) => void
+  favoriteUrls: string[]
   onTabRestoreUrl: (spaceId: string, url: string) => void
   onCreateFolder: (spaceId: string, name: string) => void
   onRenameFolder: (spaceId: string, folderId: string, name: string) => void
@@ -45,6 +47,8 @@ export function SpaceList({
   onTabOpen,
   onTabRemove,
   onTabPin,
+  onTabFavorite,
+  favoriteUrls,
   onTabRestoreUrl,
   onCreateFolder,
   onRenameFolder,
@@ -92,6 +96,8 @@ export function SpaceList({
           onTabOpen={onTabOpen}
           onTabRemove={onTabRemove}
           onTabPin={onTabPin}
+          onTabFavorite={onTabFavorite}
+          favoriteUrls={favoriteUrls}
           onTabRestoreUrl={onTabRestoreUrl}
           onCreateFolder={onCreateFolder}
           onRenameFolder={onRenameFolder}

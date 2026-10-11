@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import { EMPTY_DB, type Database, type SpaceColor, type Tab, type TabGroup } from '@/lib/schema'
-import { readDatabase, writeDatabase } from '@/lib/storage'
+import { EMPTY_DB, type Database, type Favorite, type SpaceColor, type Tab, type TabGroup } from '@/lib/schema'
+import { readDatabase, readFavorites, writeDatabase, writeDatabaseAndFavorites, writeFavorites } from '@/lib/storage'
+import { addFavorite, removeFavorite, reorderFavorites, updateFavorite } from '@/lib/favorites'
 import * as space from '@/lib/space'
 import { purgeVaultedTabsForSpace, mergeSessionTags } from '@/lib/vault'
 
@@ -33,6 +34,11 @@ interface State {
   remove: (id: string) => Promise<void>
   removeTab: (spaceId: string, url: string) => Promise<boolean>
   setTabPinned: (spaceId: string, url: string, pinned: boolean) => Promise<void>
+  addFavorite: (tab: Pick<Tab, 'url' | 'title' | 'favIconUrl'>) => Promise<boolean>
+  removeFavorite: (url: string) => Promise<void>
+  updateFavorite: (url: string, next: Favorite) => Promise<void>
+  reorderFavorites: (orderedUrls: string[]) => Promise<void>
+  syncFavorites: (favorites: Favorite[]) => void
   restoreTabUrl: (spaceId: string, url: string) => Promise<boolean>
   createFolder: (spaceId: string, name: string) => Promise<string | null>
   renameFolder: (spaceId: string, folderId: string, name: string) => Promise<void>
@@ -71,6 +77,18 @@ export const useSpaceStore = create<State>((set, get) => {
     return true
   }
 
+  const persistFavorites = async (before: Database, favorites: Favorite[]): Promise<boolean> => {
+    const next = { ...before, favorites }
+    set({ db: next })
+    const result = await writeFavorites(favorites)
+    if (!result.ok) {
+      set({ db: before })
+      get().pushToast('error', '存储写入失败,已回滚')
+      return false
+    }
+    return true
+  }
+
   return ({
   db: EMPTY_DB,
   loaded: false,
@@ -78,7 +96,8 @@ export const useSpaceStore = create<State>((set, get) => {
 
   load: async () => {
     const { db, events } = await readDatabase()
-    set({ db, loaded: true })
+    const favorites = await readFavorites()
+    set({ db: { ...db, favorites: favorites.length > 0 ? favorites : db.favorites ?? [] }, loaded: true })
     for (const e of events) {
       if (e.kind === 'corrupt-backup') {
         get().pushToast('error', `数据损坏,已备份至 ${e.backupKey}`)
@@ -176,6 +195,37 @@ export const useSpaceStore = create<State>((set, get) => {
     const result = await writeDatabase(next)
     if (!result.ok) { set({ db: before }); get().pushToast('error', '存储写入失败,已回滚') }
   },
+
+  addFavorite: async (tab) => {
+    const before = get().db
+    const currentFavorites = before.favorites ?? []
+    const favorites = addFavorite(currentFavorites, tab)
+    if (favorites === currentFavorites) return false
+    return persistFavorites(before, favorites)
+  },
+
+  removeFavorite: async (url) => {
+    const before = get().db
+    const favorites = removeFavorite(before.favorites ?? [], url)
+    if (favorites.length === (before.favorites ?? []).length) return
+    await persistFavorites(before, favorites)
+  },
+
+  updateFavorite: async (url, nextFavorite) => {
+    const before = get().db
+    if (nextFavorite.url !== url && (before.favorites ?? []).some((favorite) => favorite.url === nextFavorite.url)) {
+      get().pushToast('error', 'この URL はすでに Favorites にあります')
+      return
+    }
+    await persistFavorites(before, updateFavorite(before.favorites ?? [], url, nextFavorite))
+  },
+
+  reorderFavorites: async (orderedUrls) => {
+    const before = get().db
+    await persistFavorites(before, reorderFavorites(before.favorites ?? [], orderedUrls))
+  },
+
+  syncFavorites: (favorites) => set((state) => ({ db: { ...state.db, favorites } })),
 
   restoreTabUrl: async (spaceId, url) => {
     const before = get().db
@@ -350,11 +400,12 @@ export const useSpaceStore = create<State>((set, get) => {
 
   importDb: async (next) => {
     const before = get().db
-    set({ db: next })
-    const result = await writeDatabase(next)
+    const normalizedNext = { ...next, favorites: next.favorites ?? [] }
+    set({ db: normalizedNext })
+    const result = await writeDatabaseAndFavorites(normalizedNext)
     if (!result.ok) {
       set({ db: before })
-      get().pushToast('error', '存储写入失败,已回滚')
+      get().pushToast('error', 'ストレージ書き込みに失敗しました。変更を元に戻しました')
       return false
     }
     return true

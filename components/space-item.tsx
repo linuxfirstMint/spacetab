@@ -26,6 +26,8 @@ interface Props {
   onTabOpen: (url: string) => void
   onTabRemove: (spaceId: string, url: string) => void
   onTabPin: (spaceId: string, url: string, pinned: boolean) => void
+  onTabFavorite: (spaceId: string, tab: Tab) => void
+  favoriteUrls: string[]
   onTabRestoreUrl: (spaceId: string, url: string) => void
   onCreateFolder: (spaceId: string, name: string) => void
   onRenameFolder: (spaceId: string, folderId: string, name: string) => void
@@ -60,6 +62,8 @@ export function SpaceItem({
   onTabOpen,
   onTabRemove,
   onTabPin,
+  onTabFavorite,
+  favoriteUrls,
   onTabRestoreUrl,
   onCreateFolder,
   onRenameFolder,
@@ -390,6 +394,8 @@ export function SpaceItem({
       }}
       onRemove={(url) => onTabRemove(space.id, url)}
       onTogglePinned={(url, pinned) => onTabPin(space.id, url, pinned)}
+      onAddFavorite={(tab) => onTabFavorite(space.id, tab)}
+      isFavorite={favoriteUrls.includes(tab.url)}
       onRestoreUrl={(url) => onTabRestoreUrl(space.id, url)}
       onMove={(toId, url) => onTabMove(space.id, toId, url)}
       onSelectToggle={handleSelectToggle}

@@ -4,10 +4,15 @@ import { sortedForDisplay } from '@/lib/space'
 import { archiveCurrentWindowToSpace, readActiveSpaceForWindow, switchToSpace } from '@/lib/vault'
 import { useTheme } from '@/lib/theme'
 import { colorForSpace } from '@/lib/ui-utils'
+import { FavoritesBar } from '@/components/favorites-bar'
+import type { Favorite, Tab } from '@/lib/schema'
 
 export default function App() {
   useTheme()
-  const { db, loaded, load, archiveNew, archive } = useSpaceStore()
+  const {
+    db, loaded, load, archiveNew, archive,
+    addFavorite, removeFavorite, updateFavorite, reorderFavorites,
+  } = useSpaceStore()
   const [current, setCurrent] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -46,6 +51,18 @@ export default function App() {
       <h1 className="text-xl font-semibold">SpaceTab</h1>
       <button className="text-sm underline" onClick={() => { void chrome.tabs.create({ url: chrome.runtime.getURL('manager.html') }) }}>管理</button>
     </header>
+    <FavoritesBar
+      favorites={db.favorites ?? []}
+      onOpen={(url) => { void chrome.tabs.create({ url }) }}
+      onAdd={(tab: Pick<Tab, 'url' | 'title'>) => {
+        void addFavorite(tab).then((added) => {
+          if (!added) setError('Favorites は既に登録済みか、上限の12件です。')
+        })
+      }}
+      onRemove={(url) => { void removeFavorite(url) }}
+      onEdit={(url, favorite: Favorite) => { void updateFavorite(url, favorite) }}
+      onReorder={(urls) => { void reorderFavorites(urls) }}
+    />
     <p className="text-xs text-slate-500 mb-3">SPACES</p>
     <nav aria-label="Space一覧" className="space-y-2">
       {sortedForDisplay(db.spaces).map(space => {

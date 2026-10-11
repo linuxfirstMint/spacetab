@@ -18,6 +18,7 @@ const messages: Record<Lang, Record<string, string>> = {
     spacesCount: '{n} 个空间',
     spacesAndTabsCount: '{s} 个空间 · {t} 个标签',
     mySpaces: '我的空间',
+    favorites: '收藏夹', favoritesEmpty: '跨空间快速访问的收藏会显示在这里。', favoriteTitle: '收藏名称', favoriteUrl: '收藏 URL', editFavorite: '编辑收藏', removeFavorite: '移除收藏', addFavorite: '添加收藏', alreadyFavorite: '已收藏', favoriteSave: '保存', toastFavoritesFull: '收藏夹最多保存 12 项',
     currentWindow: '当前窗口',
     headerSubtitle: '点扩展图标随时回到这里。归档/切换只影响当前窗口的非固定标签。',
     archiveCurrentWindow: '归档当前窗口',
@@ -228,6 +229,7 @@ const messages: Record<Lang, Record<string, string>> = {
     spacesCount: '{n} 個空間',
     spacesAndTabsCount: '{s} 個空間 · {t} 個分頁',
     mySpaces: '我的空間',
+    favorites: '收藏夾', favoritesEmpty: '跨空間快速存取的收藏會顯示在這裡。', favoriteTitle: '收藏名稱', favoriteUrl: '收藏 URL', editFavorite: '編輯收藏', removeFavorite: '移除收藏', addFavorite: '新增收藏', alreadyFavorite: '已收藏', favoriteSave: '儲存', toastFavoritesFull: '收藏夾最多保存 12 項',
     currentWindow: '目前視窗',
     headerSubtitle: '隨時點擊擴充功能圖示返回此處。封存/切換僅影響目前視窗的非固定分頁。',
     archiveCurrentWindow: '封存目前視窗',
@@ -438,6 +440,7 @@ const messages: Record<Lang, Record<string, string>> = {
     spacesCount: '{n} spaces',
     spacesAndTabsCount: '{s} spaces · {t} tabs',
     mySpaces: 'My Spaces',
+    favorites: 'Favorites', favoritesEmpty: 'Favorites for quick access across Spaces appear here.', favoriteTitle: 'Favorite name', favoriteUrl: 'Favorite URL', editFavorite: 'Edit favorite', removeFavorite: 'Remove favorite', addFavorite: 'Add favorite', alreadyFavorite: 'Already a favorite', favoriteSave: 'Save', toastFavoritesFull: 'Favorites can contain up to 12 items',
     currentWindow: 'Current Window',
     headerSubtitle:
       "Click the extension icon to return any time. Archive/switch only affects the current window's non-pinned tabs.",
@@ -649,6 +652,7 @@ const messages: Record<Lang, Record<string, string>> = {
     spacesCount: '{n} 個のスペース',
     spacesAndTabsCount: 'スペース {s} · タブ {t}',
     mySpaces: 'マイスペース',
+    favorites: 'Favorites', favoritesEmpty: 'スペース共通のお気に入りがここに表示されます。', favoriteTitle: 'お気に入り名', favoriteUrl: 'お気に入り URL', editFavorite: 'お気に入りを編集', removeFavorite: 'お気に入りを削除', addFavorite: 'お気に入りに追加', alreadyFavorite: '登録済み', favoriteSave: '保存', toastFavoritesFull: 'お気に入りは12件までです',
     currentWindow: '現在のウィンドウ',
     headerSubtitle:
       '拡張機能のアイコンをクリックするといつでも戻れます。保存/切り替えは現在のウィンドウのピン留めされていないタブにのみ影響します。',
@@ -860,6 +864,7 @@ const messages: Record<Lang, Record<string, string>> = {
     spacesCount: '{n} Spaces',
     spacesAndTabsCount: '{s} Spaces · {t} Tabs',
     mySpaces: 'Meine Spaces',
+    favorites: 'Favoriten', favoritesEmpty: 'Hier erscheinen Favoriten für alle Spaces.', favoriteTitle: 'Favoritenname', favoriteUrl: 'Favoriten-URL', editFavorite: 'Favorit bearbeiten', removeFavorite: 'Favorit entfernen', addFavorite: 'Favorit hinzufügen', alreadyFavorite: 'Bereits favorisiert', favoriteSave: 'Speichern', toastFavoritesFull: 'Bis zu 12 Favoriten möglich',
     currentWindow: 'Aktuelles Fenster',
     headerSubtitle:
       'Klicke auf das Erweiterungssymbol, um jederzeit zurückzukehren. Archivieren/Wechseln betrifft nur nicht angeheftete Tabs des aktuellen Fensters.',

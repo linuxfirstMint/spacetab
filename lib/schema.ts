@@ -33,6 +33,14 @@ export const TabSchema = z.object({
 })
 export type Tab = z.infer<typeof TabSchema>
 
+/** Profile-local favorite. `url` is the saved destination and never follows navigation. */
+export const FavoriteSchema = z.object({
+  url: z.string().url(),
+  title: z.string(),
+  favIconUrl: z.string().url().optional(),
+})
+export type Favorite = z.infer<typeof FavoriteSchema>
+
 export const SpaceFolderSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
@@ -73,6 +81,8 @@ export type Space = z.infer<typeof SpaceSchema>
 export const DatabaseSchema = z.object({
   version: z.literal(1),
   spaces: z.array(SpaceSchema),
+  /** Optional for compatibility with existing databases and exports. */
+  favorites: z.array(FavoriteSchema).max(12).optional(),
 })
 export type Database = z.infer<typeof DatabaseSchema>
 

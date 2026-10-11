@@ -35,6 +35,20 @@ describe('serializeForExport / parseImport round trip', () => {
     }
   })
 
+  it('exports and imports shared favorites; merge deduplicates by saved URL', () => {
+    const withFavorites = { ...sampleDb, favorites: [{ url: 'https://favorite.example/', title: 'Favorite' }] }
+    const parsed = parseImport(serializeForExport(withFavorites, 100))
+    expect(parsed.ok && parsed.file.db.favorites).toEqual(withFavorites.favorites)
+    const merged = mergeDatabase(withFavorites, { ...sampleDb, favorites: [
+      { url: 'https://favorite.example/', title: 'Other title' },
+      { url: 'https://second.example/', title: 'Second' },
+    ] })
+    expect(merged.favorites).toEqual([
+      { url: 'https://favorite.example/', title: 'Favorite' },
+      { url: 'https://second.example/', title: 'Second' },
+    ])
+  })
+
   it('preserves folder definitions, order, collapse state, and tab membership in backup files', () => {
     const foldered: Database = {
       ...sampleDb,

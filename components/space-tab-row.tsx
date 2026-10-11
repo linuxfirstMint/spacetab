@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { Tab, Space, SpaceFolder } from '@/lib/schema'
 import { useT } from '@/lib/i18n'
 import type { SpacePalette } from '@/lib/ui-utils'
-import { ArrowRight, Pin, Trash } from './icons'
+import { ArrowRight, Pin, Star, StarFilled, Trash } from './icons'
 
 interface Props {
   tab: Tab
@@ -23,6 +23,8 @@ interface Props {
   onOpen: (url: string) => void
   onRemove: (url: string) => void
   onTogglePinned: (url: string, pinned: boolean) => void
+  onAddFavorite?: (tab: Tab) => void
+  isFavorite?: boolean
   onRestoreUrl: (url: string) => void
   onMove: (toSpaceId: string, url: string) => void
   /** 同空间内排序:把 fromUrls(>=1)整体移动到本行的前/后位置 */
@@ -51,6 +53,8 @@ export function SpaceTabRow({
   onOpen,
   onRemove,
   onTogglePinned,
+  onAddFavorite,
+  isFavorite = false,
   onRestoreUrl,
   onMove,
   onReorderInSpace,
@@ -256,6 +260,7 @@ export function SpaceTabRow({
           <button onClick={(e) => { e.stopPropagation(); onRestoreUrl(tab.url) }} className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100" title={t('restoreSavedUrl')} aria-label={t('restoreSavedUrl')}>↶</button>
         )}
         <button onClick={(e) => { e.stopPropagation(); onTogglePinned(tab.url, !tab.pinned) }} className={`w-6 h-6 flex items-center justify-center rounded ${tab.pinned ? 'text-emerald-600' : 'text-slate-400'} hover:text-slate-700 hover:bg-slate-100`} title={tab.pinned ? t('unpinFromSpaceTab') : t('pinToSpace')} aria-label={tab.pinned ? t('unpinFromSpaceTab') : t('pinToSpace')}>{tab.pinned ? '📌' : <Pin className="w-3 h-3" />}</button>
+        {onAddFavorite && <button onClick={(e) => { e.stopPropagation(); onAddFavorite(tab) }} className={`w-6 h-6 flex items-center justify-center rounded ${isFavorite ? 'text-amber-500' : 'text-slate-400'} hover:text-amber-600 hover:bg-slate-100`} title={isFavorite ? t('alreadyFavorite') : t('addFavorite')} aria-label={isFavorite ? t('alreadyFavorite') : t('addFavorite')} disabled={isFavorite}>{isFavorite ? <StarFilled className="w-3 h-3" /> : <Star className="w-3 h-3" />}</button>}
         {tab.pinned && folders.length > 0 && (
           <select
             aria-label={t('moveToFolder')}

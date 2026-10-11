@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { fakeBrowser } from '@webext-core/fake-browser'
-import { readDatabase, writeDatabase } from '@/lib/storage'
+import { readDatabase, readFavorites, writeDatabase, writeFavorites } from '@/lib/storage'
 import { EMPTY_DB } from '@/lib/schema'
 
 describe('storage round trip', () => {
@@ -40,5 +40,17 @@ describe('storage round trip', () => {
     const backupKey = Object.keys(all).find((k) => k.startsWith('db_corrupt_'))
     expect(backupKey).toBeDefined()
     expect(all[backupKey!]).toEqual({ totally: 'wrong' })
+  })
+
+  it('keeps Favorites independent from Space writes and migrates embedded legacy Favorites', async () => {
+    const favorite = { url: 'https://favorite.example/', title: 'Favorite' }
+    await fakeBrowser.storage.local.set({ db: { ...EMPTY_DB, favorites: [favorite] } })
+    const migrated = await readDatabase()
+    expect(migrated.db.favorites).toEqual([favorite])
+    expect(await readFavorites()).toEqual([favorite])
+
+    await writeFavorites([{ url: 'https://new.example/', title: 'New' }])
+    await writeDatabase({ version: 1, spaces: [{ id: 'work', name: 'Work', tabs: [], createdAt: 1, updatedAt: 2 }] })
+    expect(await readFavorites()).toEqual([{ url: 'https://new.example/', title: 'New' }])
   })
 })

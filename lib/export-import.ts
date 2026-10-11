@@ -1,5 +1,6 @@
 import { z } from 'zod'
 import { DatabaseSchema, type Database } from './schema'
+import { mergeFavorites, normalizeFavorites } from './favorites'
 
 export const ExportFileSchema = z.object({
   format: z.literal('spacetab-export'),
@@ -11,12 +12,15 @@ export const ExportFileSchema = z.object({
 export type ExportFile = z.infer<typeof ExportFileSchema>
 
 export function serializeForExport(db: Database, now: number = Date.now()): string {
+  const normalized = db.favorites === undefined
+    ? db
+    : { ...db, favorites: normalizeFavorites(db.favorites) }
   const payload: ExportFile = {
     format: 'spacetab-export',
     formatVersion: 1,
     exportedAt: now,
     app: 'SpaceTab',
-    db,
+    db: normalized,
   }
   return JSON.stringify(payload, null, 2)
 }
@@ -46,11 +50,17 @@ export function mergeDatabase(current: Database, incoming: Database): Database {
       byId.set(incomingSpace.id, incomingSpace)
     }
   }
-  return { version: 1, spaces: Array.from(byId.values()) }
+  return {
+    version: 1,
+    spaces: Array.from(byId.values()),
+    favorites: mergeFavorites(current.favorites ?? [], incoming.favorites ?? []),
+  }
 }
 
 export function replaceDatabase(_current: Database, incoming: Database): Database {
-  return incoming
+  if (incoming.favorites === undefined) return incoming
+  const favorites = normalizeFavorites(incoming.favorites)
+  return favorites.length === incoming.favorites.length ? incoming : { ...incoming, favorites }
 }
 
 export interface ImportSummary {

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { TopBar } from '@/components/top-bar'
 import { SpaceList } from '@/components/space-list'
 import { LiveTabsPanel } from '@/components/live-tabs-panel'
+import { FavoritesBar } from '@/components/favorites-bar'
 import { ToastStack } from '@/components/toast-stack'
 import { SmartArchiveDialog } from '@/components/smart-archive-dialog'
 import { ImportDialog } from '@/components/import-dialog'
@@ -37,6 +38,7 @@ export default function App() {
     db, loaded, toasts,
     load, archive, archiveNew, rename, remove, duplicate,
     removeTab, moveTab, merge, importDb, setTabPinned, restoreTabUrl,
+    addFavorite: addFavoriteToStore, removeFavorite, updateFavorite, reorderFavorites, syncFavorites,
     createFolder, renameFolder, deleteFolder, setFolderCollapsed, reorderFolders, moveTabToFolder,
     setEmoji, setColor, setNote, togglePinned, reorder, reorderTabs,
     removeTabs, moveTabsBatch,
@@ -191,6 +193,16 @@ export default function App() {
   useEffect(() => {
     void load()
   }, [load])
+
+  useEffect(() => {
+    const onChanged = (changes: Record<string, chrome.storage.StorageChange>, area: string) => {
+      if (area !== 'local' || !changes.favorites) return
+      const next = changes.favorites.newValue
+      syncFavorites(Array.isArray(next) ? next : [])
+    }
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => chrome.storage.onChanged.removeListener(onChanged)
+  }, [syncFavorites])
 
   const archiveExisting = async (spaceId: string) => {
     try {
@@ -502,6 +514,20 @@ export default function App() {
         onToggleGrouping={() => setGroupingEnabled(!groupingEnabled)}
       />
       <main className="max-w-6xl mx-auto px-6 py-8 grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-12">
+          <FavoritesBar
+            favorites={db.favorites ?? []}
+            onOpen={openTabUrl}
+            onAdd={(tab) => {
+              void addFavoriteToStore(tab).then((added) => {
+                if (!added) pushToast('info', db.favorites?.length === 12 ? t('toastFavoritesFull') : t('alreadyFavorite'))
+              })
+            }}
+            onRemove={(url) => void removeFavorite(url)}
+            onEdit={(url, favorite) => void updateFavorite(url, favorite)}
+            onReorder={(urls) => void reorderFavorites(urls)}
+          />
+        </div>
         <aside className="lg:col-span-4 lg:sticky lg:top-20 lg:self-start">
           <LiveTabsPanel
             spaces={db.spaces}
@@ -536,6 +562,13 @@ export default function App() {
                 onTabOpen={openTabUrl}
                 onTabRemove={removeTab}
                 onTabPin={setTabPinned}
+                favoriteUrls={(db.favorites ?? []).map((favorite) => favorite.url)}
+                onTabFavorite={(spaceId, tab) => {
+                  void addFavoriteToStore(tab).then((added) => {
+                    if (added && tab.pinned) void setTabPinned(spaceId, tab.url, false)
+                    if (!added) pushToast('info', db.favorites?.length === 12 ? t('toastFavoritesFull') : t('alreadyFavorite'))
+                  })
+                }}
                 onTabRestoreUrl={restoreSavedTabUrl}
                 onCreateFolder={createFolder}
                 onRenameFolder={renameFolder}

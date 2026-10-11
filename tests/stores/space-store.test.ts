@@ -66,6 +66,43 @@ describe('useSpaceStore.setColor', () => {
   })
 })
 
+describe('useSpaceStore Favorites', () => {
+  it('replaces Spaces and Favorites together during import', async () => {
+    await useSpaceStore.getState().addFavorite({ url: 'https://old.example/', title: 'Old' })
+    const next = {
+      version: 1 as const,
+      spaces: [{ id: 'imported', name: 'Imported', tabs: [], createdAt: 1, updatedAt: 2 }],
+      favorites: [{ url: 'https://new.example/', title: 'New' }],
+    }
+    expect(await useSpaceStore.getState().importDb(next)).toBe(true)
+    expect((await fakeBrowser.storage.local.get(['db', 'favorites'])).favorites).toEqual(next.favorites)
+  })
+
+  it('persists shared favorites independently and supports edit, reorder, and remove', async () => {
+    const first = { url: 'https://first.example/', title: 'First' }
+    const second = { url: 'https://second.example/', title: 'Second' }
+    expect(await useSpaceStore.getState().addFavorite(first)).toBe(true)
+    expect(await useSpaceStore.getState().addFavorite(second)).toBe(true)
+    expect(await useSpaceStore.getState().addFavorite(first)).toBe(false)
+    expect((await fakeBrowser.storage.local.get('favorites')).favorites).toEqual([first, second])
+
+    await useSpaceStore.getState().updateFavorite(first.url, { ...first, title: 'Renamed' })
+    await useSpaceStore.getState().reorderFavorites([second.url, first.url])
+    expect(useSpaceStore.getState().db.favorites).toEqual([second, { ...first, title: 'Renamed' }])
+    await useSpaceStore.getState().removeFavorite(second.url)
+    expect((await fakeBrowser.storage.local.get('favorites')).favorites).toEqual([{ ...first, title: 'Renamed' }])
+  })
+
+  it('rolls back state when Favorites storage fails', async () => {
+    const before = useSpaceStore.getState().db
+    const spy = vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'))
+    expect(await useSpaceStore.getState().addFavorite({ url: 'https://example.com/', title: 'Example' })).toBe(false)
+    expect(useSpaceStore.getState().db).toEqual(before)
+    expect(useSpaceStore.getState().toasts.some((toast) => toast.kind === 'error')).toBe(true)
+    spy.mockRestore()
+  })
+})
+
 describe('useSpaceStore.remove', () => {
   it('deletes a space', async () => {
     const id = await useSpaceStore.getState().archiveNew('X', [])
