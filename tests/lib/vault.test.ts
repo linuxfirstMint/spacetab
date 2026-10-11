@@ -13,6 +13,7 @@ import {
 } from '@/lib/vault'
 import { DatabaseSchema } from '@/lib/schema'
 import { readSessionState } from '@/lib/session-state'
+import { readLastActiveTab, writeLastActiveTab } from '@/lib/last-active-tab'
 
 const FOCUSED_WIN = 1
 
@@ -213,6 +214,80 @@ describe('switchToSpace', () => {
     expect((await chrome.storage.local.get('lastActiveSpaceId')).lastActiveSpaceId).toBe('alpha')
   })
 
+  it('returns to the exact previously selected live tab, including duplicate URLs', async () => {
+    const sameUrl = 'https://same-space.example/'
+    await seedFocusedWindow([
+      { url: sameUrl },
+      { url: sameUrl },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+    const originalTabs = await chrome.tabs.query({ windowId: FOCUSED_WIN })
+    const sameUrlTabs = originalTabs.filter(tab => tab.url === sameUrl)
+    const selectedId = sameUrlTabs[1]!.id!
+    await archiveCurrentWindowToSpace('alpha')
+    await switchToSpace('beta', [{ url: 'https://beta.example/', title: 'Beta' }])
+    await writeLastActiveTab('alpha', { tabId: selectedId, url: sameUrl })
+    const updateSpy = vi.spyOn(chrome.tabs, 'update')
+
+    await switchToSpace('alpha', [
+      { url: sameUrl, title: 'First copy' },
+      { url: sameUrl, title: 'Second copy' },
+    ])
+
+    expect(updateSpy).toHaveBeenCalledWith(selectedId, { active: true })
+    expect(await readLastActiveTab('alpha')).toEqual({ tabId: selectedId, url: sameUrl, urlOccurrence: 1 })
+  })
+
+  it('falls back to a remaining Space tab when the remembered tab was closed', async () => {
+    await seedFocusedWindow([
+      { url: 'https://first.example/' },
+      { url: 'https://second.example/' },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+    const originalTabs = await chrome.tabs.query({ windowId: FOCUSED_WIN })
+    const firstId = originalTabs.find(tab => tab.url === 'https://first.example/')!.id!
+    const secondId = originalTabs.find(tab => tab.url === 'https://second.example/')!.id!
+    await archiveCurrentWindowToSpace('alpha')
+    await switchToSpace('beta', [{ url: 'https://beta.example/', title: 'Beta' }])
+    await writeLastActiveTab('alpha', { tabId: secondId, url: 'https://second.example/' })
+    await chrome.tabs.remove(secondId)
+    await onTabRemovedHandler(secondId)
+    const updateSpy = vi.spyOn(chrome.tabs, 'update')
+
+    await switchToSpace('alpha', [
+      { url: 'https://first.example/', title: 'First' },
+      { url: 'https://second.example/', title: 'Second' },
+    ])
+
+    expect(updateSpy).toHaveBeenCalledWith(firstId, { active: true })
+  })
+
+  it('does not activate an unrelated tab that happens to match the remembered URL', async () => {
+    await seedFocusedWindow([
+      { url: 'https://same.example/' },
+      { url: 'https://space.example/' },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+    const originalTabs = await chrome.tabs.query({ windowId: FOCUSED_WIN })
+    const spaceTab = originalTabs.find(tab => tab.url === 'https://same.example/')!
+    await archiveCurrentWindowToSpace('alpha')
+    await switchToSpace('beta', [{ url: 'https://beta.example/', title: 'Beta' }])
+    const unrelated = await chrome.tabs.create({
+      windowId: FOCUSED_WIN,
+      url: 'https://same.example/',
+      active: false,
+    } as chrome.tabs.CreateProperties)
+    await writeLastActiveTab('alpha', { tabId: unrelated.id!, url: 'https://same.example/' })
+    const updateSpy = vi.spyOn(chrome.tabs, 'update')
+
+    await switchToSpace('alpha', [
+      { url: 'https://same.example/', title: 'Space tab' },
+      { url: 'https://space.example/', title: 'Other space tab' },
+    ])
+
+    expect(updateSpy).toHaveBeenCalledWith(spaceTab.id, { active: true })
+  })
+
   it('restores the last Space on startup without filing its matching restored tab as Saved tabs', async () => {
     const spaceTabs = [
       { url: 'https://www.google.com/?hl=ja', title: 'Google' },
@@ -233,6 +308,86 @@ describe('switchToSpace', () => {
     )
     const { db } = await import('@/lib/storage').then(m => m.readDatabase())
     expect(db.spaces.map(s => s.name)).toEqual(['Alpha'])
+  })
+
+  it('rebinds a stale ID to the remembered non-first duplicate when another tab is active at startup', async () => {
+    const savedUrl = 'https://same-alpha.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [
+        { url: savedUrl, title: 'First copy' },
+        { url: savedUrl, title: 'Second copy' },
+      ], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+      lastActiveTabBySpace: {
+        alpha: { tabId: 99999, url: savedUrl, urlOccurrence: 1 },
+        deleted: { tabId: 99998, url: 'https://deleted.example/' },
+      },
+    })
+    await seedFocusedWindow([
+      { url: savedUrl },
+      { url: savedUrl },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+    const manager = await chrome.tabs.create({
+      windowId: FOCUSED_WIN,
+      url: 'chrome-extension://test-id/manager.html',
+      active: true,
+    } as chrome.tabs.CreateProperties)
+    const restoredCandidates = await fakeBrowser.tabs.query({}) as chrome.tabs.Tab[]
+    vi.spyOn(chrome.tabs, 'query').mockImplementationOnce(async () =>
+      restoredCandidates.map(tab => ({ ...tab, active: tab.id === matchingIds[0] })) as chrome.tabs.Tab[],
+    )
+    const matchingIds = restoredCandidates
+      .filter(tab => tab.url === savedUrl)
+      .map(tab => tab.id!)
+    const updateSpy = vi.spyOn(chrome.tabs, 'update')
+
+    await restoreLastActiveSpaceOnStartup()
+
+    const pointer = await readLastActiveTab('alpha')
+    expect(pointer?.tabId).toBe(matchingIds[1])
+    expect(pointer?.tabId).not.toBe(99999)
+    expect(pointer?.urlOccurrence).toBe(1)
+    expect(updateSpy).toHaveBeenCalledWith(matchingIds[1], { active: true })
+    expect(await readLastActiveTab('deleted')).toBeNull()
+  })
+
+  it('selects the remembered duplicate after startup creates its missing occurrence', async () => {
+    const savedUrl = 'https://same-alpha.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [
+        { url: savedUrl, title: 'First copy' },
+        { url: savedUrl, title: 'Second copy' },
+      ], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+      lastActiveTabBySpace: {
+        alpha: { tabId: 99999, url: savedUrl, urlOccurrence: 1 },
+      },
+    })
+    await seedFocusedWindow([
+      { url: savedUrl },
+      { url: 'https://pinned-anchor.example/', pinned: true },
+    ])
+    await chrome.tabs.create({
+      windowId: FOCUSED_WIN,
+      url: 'chrome-extension://test-id/manager.html',
+      active: true,
+    } as chrome.tabs.CreateProperties)
+    const existingTab = (await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN }) as chrome.tabs.Tab[])
+      .find(tab => tab.url === savedUrl)!
+    const updateSpy = vi.spyOn(chrome.tabs, 'update')
+
+    await restoreLastActiveSpaceOnStartup()
+
+    const sameUrlTabs = (await chrome.tabs.query({ windowId: FOCUSED_WIN }))
+      .filter(tab => tab.url === savedUrl)
+      .sort((a, b) => (a.index ?? 0) - (b.index ?? 0))
+    expect(sameUrlTabs).toHaveLength(2)
+    expect(sameUrlTabs[1]?.id).not.toBe(existingTab.id)
+    expect(updateSpy).toHaveBeenCalledWith(sameUrlTabs[1]?.id, { active: true })
+    expect(await readLastActiveTab('alpha')).toEqual({
+      tabId: sameUrlTabs[1]!.id!, url: savedUrl, urlOccurrence: 1,
+    })
   })
 
   it('matches restored tabs by pendingUrl before the navigation commits', async () => {
@@ -403,13 +558,14 @@ describe('switchToSpace', () => {
   })
 
   it('does not duplicate tabs when startup restoration races with itself', async () => {
-    let tail = Promise.resolve()
+    const tails = new Map<string, Promise<void>>()
     vi.stubGlobal('navigator', {
       locks: {
-        request: async (_name: string, run: () => Promise<unknown>) => {
-          const previous = tail
+        request: async (name: string, run: () => Promise<unknown>) => {
+          const previous = tails.get(name) ?? Promise.resolve()
           let release!: () => void
-          tail = new Promise<void>(resolve => { release = resolve })
+          const tail = new Promise<void>(resolve => { release = resolve })
+          tails.set(name, previous.then(() => tail))
           await previous
           try { return await run() } finally { release() }
         },
@@ -426,13 +582,14 @@ describe('switchToSpace', () => {
   })
 
   it('keeps a manual Space selection that acquired the switch lock before startup restore', async () => {
-    let tail = Promise.resolve()
+    const tails = new Map<string, Promise<void>>()
     vi.stubGlobal('navigator', {
       locks: {
-        request: async (_name: string, run: () => Promise<unknown>) => {
-          const previous = tail
+        request: async (name: string, run: () => Promise<unknown>) => {
+          const previous = tails.get(name) ?? Promise.resolve()
           let release!: () => void
-          tail = new Promise<void>(resolve => { release = resolve })
+          const tail = new Promise<void>(resolve => { release = resolve })
+          tails.set(name, previous.then(() => tail))
           await previous
           try { return await run() } finally { release() }
         },
@@ -630,11 +787,14 @@ describe('purgeVaultedTabsForSpace (releaseSpaceTabs)', () => {
 
     const stateBefore = await readSessionState()
     expect(stateBefore.spaceIdToTabIds['space-release']).toBeDefined()
+    const tabId = stateBefore.spaceIdToTabIds['space-release']![0]!
+    await writeLastActiveTab('space-release', { tabId, url: 'https://to-release.com/' })
 
     await purgeVaultedTabsForSpace('space-release')
 
     const stateAfter = await readSessionState()
     expect(stateAfter.spaceIdToTabIds['space-release']).toBeUndefined()
+    expect(await readLastActiveTab('space-release')).toBeNull()
   })
 
   it('does NOT close the tabs — they remain alive (orphaned)', async () => {
@@ -772,19 +932,33 @@ describe('moveLiveTabToSpace', () => {
 // onTabRemovedHandler
 // ---------------------------------------------------------------------------
 describe('onTabRemovedHandler', () => {
-  it('removes the tabId from session state when a tab is closed', async () => {
+  it('clears a selected-tab pointer when that tab is closed outside window shutdown', async () => {
     await seedFocusedWindow([{ url: 'https://track.com/' }])
     await archiveCurrentWindowToSpace('space-track')
 
     const stateBefore = await readSessionState()
     const trackedIds = stateBefore.spaceIdToTabIds['space-track'] ?? []
     expect(trackedIds.length).toBeGreaterThan(0)
+    await writeLastActiveTab('space-track', { tabId: trackedIds[0]!, url: 'https://track.com/' })
 
     // Simulate tab removal
     await onTabRemovedHandler(trackedIds[0]!)
 
     const stateAfter = await readSessionState()
     expect(stateAfter.spaceIdToTabIds['space-track'] ?? []).not.toContain(trackedIds[0])
+    expect(await readLastActiveTab('space-track')).toBeNull()
+  })
+
+  it('keeps the selected-tab descriptor through whole-window removal for browser restart', async () => {
+    await seedFocusedWindow([{ url: 'https://same.example/' }])
+    await archiveCurrentWindowToSpace('space-track')
+    const tabId = (await readSessionState()).spaceIdToTabIds['space-track']![0]!
+    await writeLastActiveTab('space-track', { tabId, url: 'https://same.example/', urlOccurrence: 0 })
+
+    await onTabRemovedHandler(tabId, true)
+
+    expect((await readSessionState()).spaceIdToTabIds['space-track'] ?? []).not.toContain(tabId)
+    expect(await readLastActiveTab('space-track')).toEqual({ tabId, url: 'https://same.example/', urlOccurrence: 0 })
   })
 })
 
@@ -828,6 +1002,7 @@ describe('mergeSessionTags', () => {
     const stateBefore = await readSessionState()
     const fromIds = stateBefore.spaceIdToTabIds['space-from'] ?? []
     expect(fromIds.length).toBeGreaterThan(0)
+    await writeLastActiveTab('space-from', { tabId: fromIds[0]!, url: 'https://from.com/' })
 
     await mergeSessionTags('space-from', 'space-to')
 
@@ -839,6 +1014,8 @@ describe('mergeSessionTags', () => {
     for (const id of fromIds) {
       expect(toIds).toContain(id)
     }
+    expect(await readLastActiveTab('space-from')).toBeNull()
+    expect(await readLastActiveTab('space-to')).toEqual({ tabId: fromIds[0]!, url: 'https://from.com/', urlOccurrence: 0 })
   })
 
   it('no-op when fromId === toId', async () => {

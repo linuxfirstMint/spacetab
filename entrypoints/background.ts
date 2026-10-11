@@ -3,6 +3,7 @@ import { readSessionState } from '@/lib/session-state'
 import { sortedForDisplay } from '@/lib/space'
 import { onTabRemovedHandler, onWindowRemovedHandler, restoreLastActiveSpaceOnStartup, switchToSpace } from '@/lib/vault'
 import { appendStartupDiagnostic } from '@/lib/startup-diagnostics'
+import { readLastActiveTab, writeLastActiveTab } from '@/lib/last-active-tab'
 
 const NATURAL_STARTUP_DIAGNOSTIC_BUILD = 'natural-startup-local-diagnostic-v1'
 const STARTUP_DIAGNOSTICS_KEY = 'codexNaturalStartupDiagnostics'
@@ -81,6 +82,10 @@ function recordStartupDiagnostic(phase: string, details?: Record<string, unknown
 }
 
 export default defineBackground(() => {
+  // Chrome may activate another tab while it is removing tabs from a window
+  // that is closing. Those transient activations must not replace the user's
+  // last deliberate selection.
+  const closingWindowIds = new Set<number>()
   exposeStartupStage('background-entered')
   console.info('[SpaceTab] Background entry', NATURAL_STARTUP_DIAGNOSTIC_BUILD, new Date().toISOString())
   void recordStartupDiagnostic('background-entered')
@@ -147,11 +152,71 @@ export default defineBackground(() => {
     })().catch(console.error)
   })
 
-  chrome.tabs.onRemoved.addListener((tabId) => {
-    void onTabRemovedHandler(tabId)
+  chrome.tabs.onRemoved.addListener((tabId, removeInfo) => {
+    if (removeInfo.isWindowClosing) closingWindowIds.add(removeInfo.windowId)
+    void onTabRemovedHandler(tabId, removeInfo.isWindowClosing)
+  })
+
+  chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+    if (closingWindowIds.has(windowId)) return
+    // Queue behind a Space switch, then verify this event still describes the
+    // active tab. That drops stale activation events from rapid tab changes.
+    void navigator.locks.request('spacetab-switch', async () => {
+      try {
+        const [state, tab] = await Promise.all([
+          readSessionState(),
+          chrome.tabs.get(tabId),
+        ])
+        const spaceId = state.currentSpaceId
+        if (!spaceId || tab.windowId !== windowId || tab.active !== true) return
+        if (state.vaultWindowId === windowId) return
+        if (!(state.spaceIdToTabIds[spaceId] ?? []).includes(tabId)) return
+        const url = tab.url || tab.pendingUrl
+        if (!url || url.startsWith('chrome-extension://')) return
+        const spaceTabIds = new Set(state.spaceIdToTabIds[spaceId] ?? [])
+        const matchingTabs = (await chrome.tabs.query({ windowId }))
+          .filter(candidate => typeof candidate.id === 'number'
+            && spaceTabIds.has(candidate.id)
+            && (candidate.url || candidate.pendingUrl) === url)
+        const urlOccurrence = matchingTabs.findIndex(candidate => candidate.id === tabId)
+        await writeLastActiveTab(spaceId, { tabId, url, urlOccurrence: Math.max(0, urlOccurrence) })
+      } catch {
+        // Tabs can close while an activation event is being processed.
+      }
+    })
+  })
+
+  chrome.tabs.onMoved.addListener((tabId, { windowId }) => {
+    void navigator.locks.request('spacetab-switch', async () => {
+      try {
+        const state = await readSessionState()
+        const spaceId = state.currentSpaceId
+        if (!spaceId || state.vaultWindowId === windowId) return
+        const previous = await readLastActiveTab(spaceId)
+        const ids = new Set(state.spaceIdToTabIds[spaceId] ?? [])
+        if (!previous || !ids.has(tabId) || !ids.has(previous.tabId)) return
+        const [movedTab, selectedTab] = await Promise.all([
+          chrome.tabs.get(tabId),
+          chrome.tabs.get(previous.tabId),
+        ])
+        const movedUrl = movedTab.url || movedTab.pendingUrl
+        const url = selectedTab.url || selectedTab.pendingUrl
+        if (!movedUrl || movedUrl !== previous.url || !url || url !== previous.url) return
+        if (movedTab.windowId !== windowId || selectedTab.windowId !== windowId) return
+        const matchingTabs = (await chrome.tabs.query({ windowId }))
+          .filter(candidate => typeof candidate.id === 'number'
+            && ids.has(candidate.id)
+            && (candidate.url || candidate.pendingUrl) === url)
+        const urlOccurrence = matchingTabs.findIndex(candidate => candidate.id === previous.tabId)
+        await writeLastActiveTab(spaceId, { ...previous, url, urlOccurrence: Math.max(0, urlOccurrence) })
+      } catch {
+        // Tabs can close while a move event is being processed.
+      }
+    })
   })
 
   chrome.windows.onRemoved.addListener((winId) => {
+    closingWindowIds.delete(winId)
     void onWindowRemovedHandler(winId)
   })
 })

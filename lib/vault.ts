@@ -9,6 +9,13 @@ import { DatabaseSchema, type Tab, type TabGroup } from './schema'
 import { readDatabase, writeDatabase } from './storage'
 import { snapshotGroupsForTabs, restoreGroupsForTabs } from './tab-groups'
 import { readLastActiveSpaceId, writeLastActiveSpaceId } from './last-active-space'
+import {
+  clearAllLastActiveTabs,
+  clearLastActiveTab,
+  clearLastActiveTabById,
+  readLastActiveTab,
+  writeLastActiveTab,
+} from './last-active-tab'
 
 const SKIP_URL_PREFIXES = ['chrome://', 'chrome-extension://', 'edge://', 'about:', 'view-source:']
 
@@ -195,6 +202,12 @@ export async function restoreLastActiveSpaceOnStartup(
     }
 
     const lastSpaceId = await readLastActiveSpaceId()
+    const previousSelection = lastSpaceId ? await readLastActiveTab(lastSpaceId) : null
+    // storage.local survives Chrome restarts, but tab IDs do not. Rebuild only
+    // the active Space's pointer from restored tabs below. Keep URL occurrence
+    // metadata so a non-active extension page does not lose the tab selection.
+    await clearAllLastActiveTabs()
+
     if (!lastSpaceId) {
       await diagnose('skipped-no-last-active-space')
       return false
@@ -267,17 +280,50 @@ export async function restoreLastActiveSpaceOnStartup(
         return aPriority - bPriority || (a.index ?? 0) - (b.index ?? 0)
       })
     const matchedIds: number[] = []
+    const matchedByUrl = new Map<string, chrome.tabs.Tab[]>()
     for (const tab of candidates) {
       const url = getTabUrl(tab)!
       const count = remaining.get(url) ?? 0
       if (count <= 0) continue
       matchedIds.push(tab.id!)
       remaining.set(url, count - 1)
+      const matching = matchedByUrl.get(url)
+      if (matching) matching.push(tab)
+      else matchedByUrl.set(url, [tab])
     }
+
+    const restoredActiveTab = candidates.find(tab =>
+      tab.active && tab.id !== undefined && matchedIds.includes(tab.id),
+    )
+    const selectionCandidates = previousSelection
+      ? matchedByUrl.get(previousSelection.url)
+      : undefined
+    const selectedOccurrence = previousSelection?.urlOccurrence ?? 0
+    const targetHasSelectedOccurrence = previousSelection
+      ? target.tabs.filter(tab => tab.url === previousSelection.url).length > selectedOccurrence
+      : false
+    const restoredTab = selectionCandidates?.[selectedOccurrence]
+      ?? (targetHasSelectedOccurrence ? undefined : restoredActiveTab)
 
     let nextSession = { ...session, vaultWindowId: vaultWindowId ?? null }
     nextSession = tagTabIdsForSpace(nextSession, target.id, matchedIds)
     await writeSessionState(nextSession)
+    if (restoredTab?.id !== undefined) {
+      const restoredUrl = getTabUrl(restoredTab)
+      if (restoredUrl) {
+        const urlOccurrence = matchedByUrl.get(restoredUrl)?.findIndex(tab => tab.id === restoredTab.id) ?? 0
+        await writeLastActiveTab(target.id, {
+          tabId: restoredTab.id,
+          url: restoredUrl,
+          urlOccurrence: Math.max(0, urlOccurrence),
+        })
+      }
+    } else if (previousSelection && targetHasSelectedOccurrence) {
+      // Chrome may not have restored every duplicate URL yet (or may start
+      // with a New Tab page). Keep the requested occurrence until the normal
+      // switch path recreates the missing tabs and can bind it to a live ID.
+      await writeLastActiveTab(target.id, previousSelection)
+    }
 
     await diagnose('switch-started', { matchingRestoredTabs: matchedIds.length })
     const result = await switchToSpaceUnlocked(target.id, target.tabs, target.groups ?? [], windowId)
@@ -300,6 +346,23 @@ async function switchToSpaceUnlocked(
   if (fromSpaceId === toSpaceId) {
     await writeLastActiveSpaceId(toSpaceId)
     return { failed: [], fromSpaceId }
+  }
+  if (fromSpaceId) {
+    const previousSelection = await readLastActiveTab(fromSpaceId)
+    if (previousSelection && (state.spaceIdToTabIds[fromSpaceId] ?? []).includes(previousSelection.tabId)) {
+      const selectedTab = visibleAll.find(tab => tab.id === previousSelection.tabId)
+      if (selectedTab && getTabUrl(selectedTab) === previousSelection.url) {
+        const sameUrlTabs = visibleAll.filter(tab =>
+          typeof tab.id === 'number'
+          && (state.spaceIdToTabIds[fromSpaceId] ?? []).includes(tab.id)
+          && getTabUrl(tab) === previousSelection.url,
+        )
+        const urlOccurrence = sameUrlTabs.findIndex(tab => tab.id === previousSelection.tabId)
+        if (urlOccurrence >= 0) {
+          await writeLastActiveTab(fromSpaceId, { ...previousSelection, urlOccurrence })
+        }
+      }
+    }
   }
   const allTaggedIds = new Set<number>()
   for (const ids of Object.values(state.spaceIdToTabIds)) {
@@ -355,6 +418,7 @@ async function switchToSpaceUnlocked(
   // 用户在 manager 里删 / 跨空间移动后,DB 已经反映新状态,但 session state 里的
   // tabId 标记还没被清理 — 这里是关键的一致性兜底。
   const knownIds = state.spaceIdToTabIds[toSpaceId] ?? []
+  const lastActiveTab = await readLastActiveTab(toSpaceId)
   const aliveKnownIds = await filterAlive(knownIds)
   const wantedUrls = new Set(toSpaceTabs.map((tt) => tt.url))
   const liveUrlCounts = new Map<string, number>()
@@ -459,9 +523,44 @@ async function switchToSpaceUnlocked(
   await writeLastActiveSpaceId(toSpaceId)
 
   const destination = await chrome.tabs.query({ windowId: focusedId })
+  const remembered = lastActiveTab
+    ? wantedKnownIds.find(id => id === lastActiveTab.tabId)
+    : undefined
+  let activeTabId = remembered
+  if (remembered !== undefined) {
+    try {
+      const tab = await chrome.tabs.get(remembered)
+      if (getTabUrl(tab) !== lastActiveTab?.url || tab.windowId !== focusedId) activeTabId = undefined
+    } catch {
+      activeTabId = undefined
+    }
+  }
+  if (activeTabId === undefined && lastActiveTab) {
+    const targetIds = new Set([...wantedKnownIds, ...newlyCreatedIds])
+    const matchingTargets = destination.filter(tab =>
+      typeof tab.id === 'number'
+      && targetIds.has(tab.id)
+      && getTabUrl(tab) === lastActiveTab.url,
+    )
+    activeTabId = matchingTargets[lastActiveTab.urlOccurrence ?? 0]?.id
+  }
   const first = destination.find(t => typeof t.id === 'number' && !isSelfExtension(getTabUrl(t)))
-  if (first?.id !== undefined) {
-    await chrome.tabs.update(first.id, { active: true })
+  activeTabId ??= first?.id
+  if (activeTabId !== undefined) {
+    await chrome.tabs.update(activeTabId, { active: true })
+    const activeTab = await chrome.tabs.get(activeTabId).catch(() => null)
+    const activeUrl = activeTab ? getTabUrl(activeTab) : undefined
+    if (activeUrl && !isSelfExtension(activeUrl)) {
+      const targetIds = new Set([...wantedKnownIds, ...newlyCreatedIds])
+      const urlOccurrence = destination
+        .filter(tab => typeof tab.id === 'number' && targetIds.has(tab.id) && getTabUrl(tab) === activeUrl)
+        .findIndex(tab => tab.id === activeTabId)
+      await writeLastActiveTab(toSpaceId, {
+        tabId: activeTabId,
+        url: activeUrl,
+        urlOccurrence: Math.max(0, urlOccurrence),
+      })
+    }
     if (anchor?.id !== undefined) await chrome.tabs.remove(anchor.id)
   }
   return { failed, fromSpaceId }
@@ -473,6 +572,7 @@ async function switchToSpaceUnlocked(
 export async function releaseSpaceTabs(spaceId: string): Promise<void> {
   const state = await readSessionState()
   await writeSessionState(dropSpaceFromState(state, spaceId))
+  await clearLastActiveTab(spaceId)
 }
 
 // 历史名,保留转发以避免外部破坏
@@ -487,11 +587,18 @@ export async function mergeSessionTags(fromId: string, toId: string): Promise<vo
   if (!fromIds || fromIds.length === 0) {
     // 源空间没有 session 标签,仅清理条目
     await writeSessionState(dropSpaceFromState(state, fromId))
+    await clearLastActiveTab(fromId)
     return
   }
+  const sourceSelection = await readLastActiveTab(fromId)
+  const targetSelection = await readLastActiveTab(toId)
   // tagTabIdsForSpace 内部已去重
   const tagged = tagTabIdsForSpace(state, toId, fromIds)
   await writeSessionState(dropSpaceFromState(tagged, fromId))
+  await clearLastActiveTab(fromId)
+  if (!targetSelection && sourceSelection && fromIds.includes(sourceSelection.tabId)) {
+    await writeLastActiveTab(toId, sourceSelection)
+  }
 }
 
 export async function moveLiveTabToSpace(
@@ -537,7 +644,11 @@ export async function moveLiveTabToSpace(
 }
 
 // Called from background listeners
-export async function onTabRemovedHandler(tabId: number): Promise<void> {
+export async function onTabRemovedHandler(tabId: number, isWindowClosing = false): Promise<void> {
+  // Chrome can remove tabs as part of a normal browser shutdown. Keep the
+  // URL/occurrence descriptor even when its session-only ID goes stale; the
+  // startup restore rebinds it to a matching tab or falls back safely.
+  if (!isWindowClosing) await clearLastActiveTabById(tabId)
   const state = await readSessionState()
   const next = untagTabIdInState(state, tabId)
   if (next !== state) await writeSessionState(next)
