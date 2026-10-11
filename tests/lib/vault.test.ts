@@ -203,6 +203,102 @@ describe('archiveCurrentWindowToSpace', () => {
 // switchToSpace
 // ---------------------------------------------------------------------------
 describe('switchToSpace', () => {
+  it('keeps independent Spaces and their live tabs in separate windows', async () => {
+    await seedFocusedWindow([{ url: 'chrome-extension://test-id/vault-marker.html', pinned: true }])
+    const other = await fakeBrowser.windows.create({ focused: false })
+    await fakeBrowser.tabs.create({
+      windowId: other.id,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+
+    await switchToSpace('alpha', [{ url: 'https://alpha.example/', title: 'Alpha' }], [], FOCUSED_WIN)
+    await switchToSpace('beta', [{ url: 'https://beta.example/', title: 'Beta' }], [], other.id!)
+
+    const state = await readSessionState()
+    expect(state.windowIdToSpaceId).toMatchObject({ [FOCUSED_WIN]: 'alpha', [other.id!]: 'beta' })
+    expect((await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN })).map((tab: chrome.tabs.Tab) => tab.url)).toContain('https://alpha.example/')
+    expect((await fakeBrowser.tabs.query({ windowId: other.id! })).map((tab: chrome.tabs.Tab) => tab.url)).toContain('https://beta.example/')
+    expect((await fakeBrowser.tabs.query({ windowId: other.id! })).map((tab: chrome.tabs.Tab) => tab.url)).not.toContain('https://alpha.example/')
+    expect((await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN })).map((tab: chrome.tabs.Tab) => tab.url)).not.toContain('https://beta.example/')
+  })
+
+  it('serializes simultaneous switches without cross-window recovery or ownership loss', async () => {
+    await seedFocusedWindow([{ url: 'chrome-extension://test-id/vault-marker.html', pinned: true }])
+    const other = await fakeBrowser.windows.create({ focused: false })
+    await fakeBrowser.tabs.create({
+      windowId: other.id,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+    const tails = new Map<string, Promise<void>>()
+    vi.stubGlobal('navigator', {
+      locks: {
+        request: async (name: string, run: () => Promise<unknown>) => {
+          const previous = tails.get(name) ?? Promise.resolve()
+          let release!: () => void
+          tails.set(name, new Promise<void>((resolve) => { release = resolve }))
+          await previous
+          try {
+            return await run()
+          } finally {
+            release()
+          }
+        },
+      },
+    })
+
+    await Promise.all([
+      switchToSpace('alpha', [{ url: 'https://alpha.example/', title: 'Alpha' }], [], FOCUSED_WIN),
+      switchToSpace('beta', [{ url: 'https://beta.example/', title: 'Beta' }], [], other.id!),
+    ])
+
+    const state = await readSessionState()
+    expect(state.windowIdToSpaceId).toMatchObject({ [FOCUSED_WIN]: 'alpha', [other.id!]: 'beta' })
+    expect((await fakeBrowser.tabs.query({})).filter((tab: chrome.tabs.Tab) => tab.url === 'https://alpha.example/')).toHaveLength(1)
+    expect((await fakeBrowser.tabs.query({})).filter((tab: chrome.tabs.Tab) => tab.url === 'https://beta.example/')).toHaveLength(1)
+  })
+
+  it('focuses the existing owner when the same Space is requested from another window', async () => {
+    await seedFocusedWindow([{ url: 'chrome-extension://test-id/vault-marker.html', pinned: true }])
+    const other = await fakeBrowser.windows.create({ focused: false })
+    await fakeBrowser.tabs.create({
+      windowId: other.id,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+    const tabs = [{ url: 'https://one-owner.example/', title: 'Owner' }]
+    await switchToSpace('owned', tabs, [], FOCUSED_WIN)
+    const create = vi.spyOn(chrome.tabs, 'create')
+    const focus = vi.spyOn(chrome.windows, 'update')
+
+    await switchToSpace('owned', tabs, [], other.id!)
+
+    expect(create).not.toHaveBeenCalled()
+    expect(focus).toHaveBeenCalledWith(FOCUSED_WIN, { focused: true })
+    expect((await fakeBrowser.tabs.query({ windowId: FOCUSED_WIN })).filter((tab: chrome.tabs.Tab) => tab.url === tabs[0]!.url)).toHaveLength(1)
+    expect((await fakeBrowser.tabs.query({ windowId: other.id! })).some((tab: chrome.tabs.Tab) => tab.url === tabs[0]!.url)).toBe(false)
+  })
+
+  it('clears only the closed normal window owner and leaves other window state intact', async () => {
+    await seedFocusedWindow([{ url: 'chrome-extension://test-id/vault-marker.html', pinned: true }])
+    const other = await fakeBrowser.windows.create({ focused: false })
+    await fakeBrowser.tabs.create({
+      windowId: other.id,
+      url: 'chrome-extension://test-id/vault-marker.html',
+      pinned: true,
+    } as chrome.tabs.CreateProperties)
+    await switchToSpace('alpha', [], [], FOCUSED_WIN)
+    await switchToSpace('beta', [], [], other.id!)
+
+    await fakeBrowser.windows.remove(FOCUSED_WIN)
+    await onWindowRemovedHandler(FOCUSED_WIN)
+
+    const state = await readSessionState()
+    expect(state.windowIdToSpaceId).toEqual({ [other.id!]: 'beta' })
+    expect(state.currentSpaceId).toBe('beta')
+  })
+
   it('persists the last manually selected Space for the next browser startup', async () => {
     await chrome.storage.local.set({
       db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [], createdAt: 1, updatedAt: 1 }] },
@@ -676,7 +772,7 @@ describe('switchToSpace', () => {
   })
   it('does not move or reopen pages when switching to the current space', async () => {
     await seedFocusedWindow([{ url: 'https://current.com/' }])
-    await chrome.storage.session.set({ currentSpaceId: 'current' })
+    await chrome.storage.session.set({ currentSpaceId: 'current', windowIdToSpaceId: { [FOCUSED_WIN]: 'current' } })
     const move = vi.spyOn(chrome.tabs, 'move')
     await switchToSpace('current', [])
     expect(move).not.toHaveBeenCalled()

@@ -4,6 +4,9 @@ import {
   tagTabIdsForSpace,
   untagTabIdInState,
   dropSpaceFromState,
+  activeSpaceForWindow,
+  setActiveSpaceForWindow,
+  removeWindowFromState,
 } from './session-state'
 import { DatabaseSchema, type Tab, type TabGroup } from './schema'
 import { readDatabase, writeDatabase } from './storage'
@@ -54,6 +57,23 @@ async function focusedWindowId(): Promise<number> {
   const win = await chrome.windows.getCurrent()
   if (typeof win.id !== 'number') throw new Error('No focused window')
   return win.id
+}
+
+async function legacySpaceForWindow(state: Awaited<ReturnType<typeof readSessionState>>, windowId: number): Promise<string | null> {
+  if (Object.keys(state.windowIdToSpaceId ?? {}).length > 0 || !state.currentSpaceId) return null
+  const windows = await chrome.windows.getAll({ windowTypes: ['normal'] })
+  const normalIds = windows.filter(win => win.id !== undefined && win.id !== state.vaultWindowId).map(win => win.id!)
+  return normalIds.length === 1 && normalIds[0] === windowId ? state.currentSpaceId : null
+}
+
+/** Resolve current selection without letting a legacy global pointer claim one of several windows. */
+export async function readActiveSpaceForWindow(windowId: number): Promise<string | null> {
+  const state = await readSessionState()
+  return activeSpaceForWindow(state, windowId) ?? await legacySpaceForWindow(state, windowId)
+}
+
+async function focusExistingSpaceWindow(windowId: number): Promise<void> {
+  await chrome.windows.update(windowId, { focused: true })
 }
 
 export async function ensureVaultWindow(): Promise<number> {
@@ -196,7 +216,7 @@ export async function restoreLastActiveSpaceOnStartup(
     await diagnose('restore-started')
     const session = await readSessionState()
     // A user selection or a previous startup restore already won this race.
-    if (session.currentSpaceId) {
+    if (session.currentSpaceId || Object.keys(session.windowIdToSpaceId ?? {}).length > 0) {
       await diagnose('skipped-current-space', { currentSpaceId: session.currentSpaceId })
       return false
     }
@@ -344,9 +364,52 @@ async function switchToSpaceUnlocked(
   const focusedId = windowId ?? await focusedWindowId()
   const visibleAll = await chrome.tabs.query({ windowId: focusedId, pinned: false })
 
-  const state = await readSessionState()
-  const fromSpaceId = state.currentSpaceId ?? null
+  let state = await readSessionState()
+  const fromSpaceId = activeSpaceForWindow(state, focusedId) ?? await legacySpaceForWindow(state, focusedId)
+
+  // A Space has one visible window owner. Reusing it focuses that window so
+  // its live pages, form state, and scroll position remain intact.
+  const mappedOwner = Object.entries(state.windowIdToSpaceId ?? {})
+    .find(([id, activeSpaceId]) => Number(id) !== focusedId && activeSpaceId === toSpaceId)
+  if (mappedOwner) {
+    const ownerId = Number(mappedOwner[0])
+    try {
+      const owner = await chrome.windows.get(ownerId)
+      if (ownerId !== state.vaultWindowId && owner.type === 'normal') {
+        await focusExistingSpaceWindow(ownerId)
+        return { failed: [], fromSpaceId }
+      }
+    } catch {
+      // Remove stale ownership before considering any live tagged tabs.
+    }
+    state = removeWindowFromState(state, ownerId)
+    await writeSessionState(state)
+  }
+
+  // During an upgrade or after a manually moved tab, session tags can prove
+  // that the requested Space is already visible even if its window map is
+  // missing. Focus that window rather than creating duplicate live tabs.
+  const targetIds = new Set(state.spaceIdToTabIds[toSpaceId] ?? [])
+  if (targetIds.size > 0) {
+    const taggedTabs = await chrome.tabs.query({})
+    const visibleTarget = taggedTabs.find(tab =>
+      typeof tab.id === 'number' && targetIds.has(tab.id)
+      && tab.windowId !== focusedId && tab.windowId !== state.vaultWindowId
+      && (!state.windowIdToSpaceId?.[String(tab.windowId)]
+        || state.windowIdToSpaceId[String(tab.windowId)] === toSpaceId),
+    )
+    if (visibleTarget?.windowId !== undefined) {
+      await focusExistingSpaceWindow(visibleTarget.windowId)
+      await writeSessionState(setActiveSpaceForWindow(state, visibleTarget.windowId, toSpaceId))
+      return { failed: [], fromSpaceId }
+    }
+  }
+
   if (fromSpaceId === toSpaceId) {
+    const mapped = setActiveSpaceForWindow(state, focusedId, toSpaceId)
+    if (mapped.windowIdToSpaceId?.[String(focusedId)] !== state.windowIdToSpaceId?.[String(focusedId)]) {
+      await writeSessionState(mapped)
+    }
     await writeLastActiveSpaceId(toSpaceId)
     return { failed: [], fromSpaceId }
   }
@@ -517,12 +580,14 @@ async function switchToSpaceUnlocked(
   if (newlyCreatedIds.length > 0) {
     next = tagTabIdsForSpace(next, toSpaceId, newlyCreatedIds)
   }
+  const mapped = setActiveSpaceForWindow(next, focusedId, toSpaceId)
   if (
     orphanKnownIds.length > 0 ||
     newlyCreatedIds.length > 0 ||
-    next.currentSpaceId !== toSpaceId
+    next.currentSpaceId !== toSpaceId ||
+    next.windowIdToSpaceId?.[String(focusedId)] !== toSpaceId
   ) {
-    await writeSessionState({ ...next, currentSpaceId: toSpaceId })
+    await writeSessionState(mapped)
   }
   await writeLastActiveSpaceId(toSpaceId)
 
@@ -587,10 +652,29 @@ export const purgeVaultedTabsForSpace = releaseSpaceTabs
 export async function mergeSessionTags(fromId: string, toId: string): Promise<void> {
   if (fromId === toId) return
   const state = await readSessionState()
+  const sourceWindows = Object.entries(state.windowIdToSpaceId ?? {})
+    .filter(([, spaceId]) => spaceId === fromId)
+    .map(([windowId]) => windowId)
+  const targetOwnedElsewhere = Object.entries(state.windowIdToSpaceId ?? {})
+    .some(([windowId, spaceId]) => spaceId === toId && !sourceWindows.includes(windowId))
+  const targetOwnerWindowId = targetOwnedElsewhere
+    ? Object.entries(state.windowIdToSpaceId ?? {}).find(([windowId, spaceId]) => spaceId === toId && !sourceWindows.includes(windowId))?.[0]
+    : sourceWindows[0]
+  let windowIdToSpaceId = { ...(state.windowIdToSpaceId ?? {}) }
+  for (const windowId of sourceWindows) {
+    if (windowId === targetOwnerWindowId) windowIdToSpaceId[windowId] = toId
+    else delete windowIdToSpaceId[windowId]
+  }
+  const mergedCurrentSpaceId = state.currentSpaceId === fromId
+    ? (targetOwnerWindowId && windowIdToSpaceId[targetOwnerWindowId] === toId
+        ? toId
+        : Object.values(windowIdToSpaceId).at(-1) ?? null)
+    : state.currentSpaceId ?? null
   const fromIds = state.spaceIdToTabIds[fromId]
   if (!fromIds || fromIds.length === 0) {
     // 源空间没有 session 标签,仅清理条目
-    await writeSessionState(dropSpaceFromState(state, fromId))
+    const next = dropSpaceFromState({ ...state, windowIdToSpaceId, currentSpaceId: mergedCurrentSpaceId }, fromId)
+    await writeSessionState(next)
     await clearLastActiveTab(fromId)
     return
   }
@@ -598,7 +682,7 @@ export async function mergeSessionTags(fromId: string, toId: string): Promise<vo
   const targetSelection = await readLastActiveTab(toId)
   // tagTabIdsForSpace 内部已去重
   const tagged = tagTabIdsForSpace(state, toId, fromIds)
-  await writeSessionState(dropSpaceFromState(tagged, fromId))
+  await writeSessionState(dropSpaceFromState({ ...tagged, windowIdToSpaceId, currentSpaceId: mergedCurrentSpaceId }, fromId))
   await clearLastActiveTab(fromId)
   if (!targetSelection && sourceSelection && fromIds.includes(sourceSelection.tabId)) {
     await writeLastActiveTab(toId, sourceSelection)
@@ -661,6 +745,9 @@ export async function onTabRemovedHandler(tabId: number, isWindowClosing = false
 export async function onWindowRemovedHandler(closedWindowId: number): Promise<void> {
   const state = await readSessionState()
   if (state.vaultWindowId === closedWindowId) {
-    await writeSessionState({ vaultWindowId: null, spaceIdToTabIds: {} })
+    await writeSessionState({ ...state, vaultWindowId: null, spaceIdToTabIds: {} })
+    return
   }
+  const next = removeWindowFromState(state, closedWindowId)
+  if (next !== state) await writeSessionState(next)
 }

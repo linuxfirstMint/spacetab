@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSpaceStore } from '@/stores/space-store'
 import { sortedForDisplay } from '@/lib/space'
-import { archiveCurrentWindowToSpace, switchToSpace } from '@/lib/vault'
-import { readSessionState } from '@/lib/session-state'
+import { archiveCurrentWindowToSpace, readActiveSpaceForWindow, switchToSpace } from '@/lib/vault'
 import { useTheme } from '@/lib/theme'
 
 export default function App() {
@@ -12,10 +11,14 @@ export default function App() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [name, setName] = useState('')
+  const refreshCurrent = async () => {
+    const window = await chrome.windows.getCurrent()
+    setCurrent(typeof window.id === 'number' ? await readActiveSpaceForWindow(window.id) : null)
+  }
   useEffect(() => {
     const refresh = async () => {
       await load()
-      setCurrent((await readSessionState()).currentSpaceId ?? null)
+      await refreshCurrent()
     }
     const changed = () => { void refresh() }
     void refresh()
@@ -30,7 +33,7 @@ export default function App() {
     try {
       await action()
       await load()
-      setCurrent((await readSessionState()).currentSpaceId ?? null)
+      await refreshCurrent()
     } catch {
       setError('操作を完了できませんでした。タブと保存状態を確認してください。')
     } finally {

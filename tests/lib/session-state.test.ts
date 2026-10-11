@@ -4,6 +4,9 @@ import {
   tagTabIdsForSpace,
   dropSpaceFromState,
   EMPTY_SESSION,
+  activeSpaceForWindow,
+  setActiveSpaceForWindow,
+  removeWindowFromState,
   type SessionState,
 } from '@/lib/session-state'
 
@@ -135,5 +138,37 @@ describe('dropSpaceFromState', () => {
     const next = dropSpaceFromState(state, 'spaceA')
     expect(next.vaultWindowId).toBe(7)
     expect(next.spaceIdToTabIds).toEqual({})
+  })
+
+  it('removes the active-window assignment even when the space has no live tabs', () => {
+    const state: SessionState = {
+      vaultWindowId: null,
+      spaceIdToTabIds: {},
+      windowIdToSpaceId: { '7': 'spaceA', '8': 'spaceB' },
+      currentSpaceId: 'spaceB',
+    }
+    expect(dropSpaceFromState(state, 'spaceA').windowIdToSpaceId).toEqual({ '8': 'spaceB' })
+  })
+})
+
+describe('active Space per window', () => {
+  it('tracks separate active Spaces without overwriting the other window', () => {
+    const first = setActiveSpaceForWindow(EMPTY_SESSION, 7, 'spaceA')
+    const next = setActiveSpaceForWindow(first, 8, 'spaceB')
+    expect(activeSpaceForWindow(next, 7)).toBe('spaceA')
+    expect(activeSpaceForWindow(next, 8)).toBe('spaceB')
+    expect(next.currentSpaceId).toBe('spaceB')
+  })
+
+  it('removes a closed window mapping without changing another window', () => {
+    const state = setActiveSpaceForWindow(
+      setActiveSpaceForWindow(EMPTY_SESSION, 7, 'spaceA'),
+      8,
+      'spaceB',
+    )
+    const next = removeWindowFromState(state, 7)
+    expect(next.windowIdToSpaceId).toEqual({ '8': 'spaceB' })
+    expect(activeSpaceForWindow(next, 8)).toBe('spaceB')
+    expect(next.currentSpaceId).toBe('spaceB')
   })
 })

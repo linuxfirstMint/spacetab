@@ -1,7 +1,7 @@
 import { readDatabase, writeDatabase } from '@/lib/storage'
 import { readSessionState } from '@/lib/session-state'
 import { sortedForDisplay, updateTabCurrentUrl } from '@/lib/space'
-import { onTabRemovedHandler, onWindowRemovedHandler, restoreLastActiveSpaceOnStartup, switchToSpace } from '@/lib/vault'
+import { onTabRemovedHandler, onWindowRemovedHandler, readActiveSpaceForWindow, restoreLastActiveSpaceOnStartup, switchToSpace } from '@/lib/vault'
 import { appendStartupDiagnostic } from '@/lib/startup-diagnostics'
 import { readLastActiveTab, writeLastActiveTab } from '@/lib/last-active-tab'
 
@@ -142,12 +142,14 @@ export default defineBackground(() => {
       const { db } = await readDatabase()
       const spaces = sortedForDisplay(db.spaces)
       if (!spaces.length) return
+      const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+      if (win.id === undefined) return
       const state = await readSessionState()
-      const index = spaces.findIndex(s => s.id === state.currentSpaceId)
+      if (win.id === state.vaultWindowId) return
+      const currentSpaceId = await readActiveSpaceForWindow(win.id)
+      const index = spaces.findIndex(s => s.id === currentSpaceId)
       const delta = command === 'next-space' ? 1 : -1
       const target = spaces[index < 0 ? 0 : (index + delta + spaces.length) % spaces.length]!
-      const win = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
-      if (win.id === undefined || win.id === state.vaultWindowId) return
       await switchToSpace(target.id, target.tabs, target.groups ?? [], win.id)
     })().catch(console.error)
   })
@@ -167,7 +169,7 @@ export default defineBackground(() => {
           readSessionState(),
           chrome.tabs.get(tabId),
         ])
-        const spaceId = state.currentSpaceId
+        const spaceId = await readActiveSpaceForWindow(windowId)
         if (!spaceId || tab.windowId !== windowId || tab.active !== true) return
         if (state.vaultWindowId === windowId) return
         if (!(state.spaceIdToTabIds[spaceId] ?? []).includes(tabId)) return
@@ -192,7 +194,7 @@ export default defineBackground(() => {
     void navigator.locks.request('spacetab-switch', async () => {
       try {
         const state = await readSessionState()
-        const spaceId = state.currentSpaceId
+        const spaceId = await readActiveSpaceForWindow(tab.windowId)
         const selection = spaceId ? await readLastActiveTab(spaceId) : null
         if (!spaceId || selection?.tabId !== tabId || state.vaultWindowId === tab.windowId) return
         const { db } = await readDatabase()
@@ -216,7 +218,7 @@ export default defineBackground(() => {
     void navigator.locks.request('spacetab-switch', async () => {
       try {
         const state = await readSessionState()
-        const spaceId = state.currentSpaceId
+        const spaceId = await readActiveSpaceForWindow(windowId)
         if (!spaceId || state.vaultWindowId === windowId) return
         const previous = await readLastActiveTab(spaceId)
         const ids = new Set(state.spaceIdToTabIds[spaceId] ?? [])
