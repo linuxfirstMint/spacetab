@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import type { Tab, Space } from '@/lib/schema'
 import { useT } from '@/lib/i18n'
 import type { SpacePalette } from '@/lib/ui-utils'
-import { ArrowRight, Trash } from './icons'
+import { ArrowRight, Pin, Trash } from './icons'
 
 interface Props {
   tab: Tab
@@ -19,6 +19,8 @@ interface Props {
   groupTitle?: string
   onOpen: (url: string) => void
   onRemove: (url: string) => void
+  onTogglePinned: (url: string, pinned: boolean) => void
+  onRestoreUrl: (url: string) => void
   onMove: (toSpaceId: string, url: string) => void
   /** 同空间内排序:把 fromUrls(>=1)整体移动到本行的前/后位置 */
   onReorderInSpace: (fromUrls: string[], position: 'before' | 'after') => void
@@ -42,6 +44,8 @@ export function SpaceTabRow({
   groupTitle,
   onOpen,
   onRemove,
+  onTogglePinned,
+  onRestoreUrl,
   onMove,
   onReorderInSpace,
   onSelectToggle,
@@ -109,10 +113,10 @@ export function SpaceTabRow({
           onSelectRange(tab.url)
           return
         }
-        onOpen(tab.url)
+        onOpen(tab.currentUrl ?? tab.url)
       }}
       onKeyDown={(e) => {
-        if (e.key === 'Enter') onOpen(tab.url)
+        if (e.key === 'Enter') onOpen(tab.currentUrl ?? tab.url)
       }}
       onDragStart={(e) => {
         // 当前行参与多选 → 拖整组,否则只拖本行
@@ -242,6 +246,10 @@ export function SpaceTabRow({
         </span>
       </div>
       <div className="flex items-center gap-0.5 opacity-0 group-hover/row:opacity-100 focus-within:opacity-100 transition-opacity">
+        {tab.currentUrl && tab.currentUrl !== tab.url && (
+          <button onClick={(e) => { e.stopPropagation(); onRestoreUrl(tab.url) }} className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100" title={t('restoreSavedUrl')} aria-label={t('restoreSavedUrl')}>↶</button>
+        )}
+        <button onClick={(e) => { e.stopPropagation(); onTogglePinned(tab.url, !tab.pinned) }} className={`w-6 h-6 flex items-center justify-center rounded ${tab.pinned ? 'text-emerald-600' : 'text-slate-400'} hover:text-slate-700 hover:bg-slate-100`} title={tab.pinned ? t('unpinFromSpaceTab') : t('pinToSpace')} aria-label={tab.pinned ? t('unpinFromSpaceTab') : t('pinToSpace')}>{tab.pinned ? '📌' : <Pin className="w-3 h-3" />}</button>
         {otherSpaces.length > 0 && (
           <button
             ref={moveBtnRef}

@@ -310,6 +310,29 @@ describe('switchToSpace', () => {
     expect(db.spaces.map(s => s.name)).toEqual(['Alpha'])
   })
 
+  it('restores a pinned tab at its current URL while retaining its saved URL after startup', async () => {
+    const savedUrl = 'https://saved-origin.example/'
+    const currentUrl = 'https://navigated.example/'
+    await chrome.storage.local.set({
+      db: { version: 1, spaces: [{ id: 'alpha', name: 'Alpha', tabs: [
+        { url: savedUrl, currentUrl, pinned: true, title: 'Saved origin' },
+      ], createdAt: 1, updatedAt: 1 }] },
+      lastActiveSpaceId: 'alpha',
+      lastActiveTabBySpace: { alpha: { tabId: 99999, url: currentUrl, urlOccurrence: 0 } },
+    })
+    await seedFocusedWindow([{ url: currentUrl }, { url: 'https://chrome-pinned.example/', pinned: true }])
+    const targetTab = (await chrome.tabs.query({ windowId: FOCUSED_WIN })).find(tab => tab.url === currentUrl)!
+    const updateSpy = vi.spyOn(chrome.tabs, 'update')
+
+    expect(await restoreLastActiveSpaceOnStartup()).toBe(true)
+
+    expect(updateSpy).toHaveBeenCalledWith(targetTab.id, { active: true })
+    const tabs = await chrome.tabs.query({ windowId: FOCUSED_WIN })
+    expect(tabs.find(tab => tab.url === 'https://chrome-pinned.example/')?.pinned).toBe(true)
+    const { db } = await import('@/lib/storage').then(module => module.readDatabase())
+    expect(db.spaces[0]?.tabs[0]).toMatchObject({ url: savedUrl, currentUrl, pinned: true })
+  })
+
   it('rebinds a stale ID to the remembered non-first duplicate when another tab is active at startup', async () => {
     const savedUrl = 'https://same-alpha.example/'
     await chrome.storage.local.set({

@@ -132,6 +132,53 @@ export function removeTabFromSpace(
   return { ...db, spaces: nextSpaces }
 }
 
+export function setTabPinned(db: Database, spaceId: string, url: string, pinned: boolean, now: number): Database {
+  let changed = false
+  const spaces = db.spaces.map((s) => {
+    if (s.id !== spaceId) return s
+    const tabs = s.tabs.map((tab) => {
+      if (tab.url !== url || Boolean(tab.pinned) === pinned) return tab
+      changed = true
+      if (pinned) return { ...tab, pinned: true }
+      const { pinned: _pinned, ...rest } = tab
+      return rest
+    })
+    return changed ? { ...s, tabs, updatedAt: now } : s
+  })
+  return changed ? { ...db, spaces } : db
+}
+
+export function updateTabCurrentUrl(db: Database, spaceId: string, url: string, currentUrl: string): Database {
+  let changed = false
+  const spaces = db.spaces.map((s) => {
+    if (s.id !== spaceId) return s
+    const tabs = s.tabs.map((tab) => {
+      if (tab.url !== url || tab.currentUrl === currentUrl || (!tab.currentUrl && currentUrl === tab.url)) return tab
+      changed = true
+      if (currentUrl !== tab.url) return { ...tab, currentUrl }
+      const { currentUrl: _currentUrl, ...rest } = tab
+      return rest
+    })
+    return changed ? { ...s, tabs } : s
+  })
+  return changed ? { ...db, spaces } : db
+}
+
+export function restoreTabUrl(db: Database, spaceId: string, url: string, now: number): Database {
+  let changed = false
+  const spaces = db.spaces.map((s) => {
+    if (s.id !== spaceId) return s
+    const tabs = s.tabs.map((tab) => {
+      if (tab.url !== url || !tab.currentUrl) return tab
+      changed = true
+      const { currentUrl: _currentUrl, ...rest } = tab
+      return rest
+    })
+    return changed ? { ...s, tabs, updatedAt: now } : s
+  })
+  return changed ? { ...db, spaces } : db
+}
+
 export function duplicateSpace(
   db: Database,
   sourceId: string,

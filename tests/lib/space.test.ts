@@ -18,6 +18,9 @@ import {
   setSpaceNote,
   setSpacePinned,
   sortedForDisplay,
+  setTabPinned,
+  updateTabCurrentUrl,
+  restoreTabUrl,
 } from '@/lib/space'
 import type { Database, Space, Tab } from '@/lib/schema'
 
@@ -70,6 +73,24 @@ describe('appendTabs with groups', () => {
       incomingGroups: [{ key: 'g1', color: 'blue' }],
     })
     expect(next.groups).toBeUndefined()
+  })
+})
+
+describe('Space pinned tabs', () => {
+  it('pins and unpins only the selected Space entry', () => {
+    const db = makeDb([makeSpace({ tabs: [t('https://a/'), t('https://b/')] })])
+    const pinned = setTabPinned(db, 'sp1', 'https://a/', true, 200)
+    expect(pinned.spaces[0]?.tabs[0]?.pinned).toBe(true)
+    expect(pinned.spaces[0]?.tabs[1]?.pinned).toBeUndefined()
+    const unpinned = setTabPinned(pinned, 'sp1', 'https://a/', false, 300)
+    expect(unpinned.spaces[0]?.tabs[0]?.pinned).toBeUndefined()
+  })
+
+  it('tracks a live URL separately and restores the saved URL', () => {
+    const db = makeDb([makeSpace({ tabs: [t('https://saved.example/')] })])
+    const navigated = updateTabCurrentUrl(db, 'sp1', 'https://saved.example/', 'https://current.example/')
+    expect(navigated.spaces[0]?.tabs[0]).toMatchObject({ url: 'https://saved.example/', currentUrl: 'https://current.example/' })
+    expect(restoreTabUrl(navigated, 'sp1', 'https://saved.example/', 300).spaces[0]?.tabs[0]?.currentUrl).toBeUndefined()
   })
 })
 

@@ -32,6 +32,8 @@ interface State {
   rename: (id: string, name: string) => Promise<void>
   remove: (id: string) => Promise<void>
   removeTab: (spaceId: string, url: string) => Promise<boolean>
+  setTabPinned: (spaceId: string, url: string, pinned: boolean) => Promise<void>
+  restoreTabUrl: (spaceId: string, url: string) => Promise<boolean>
   moveTab: (fromId: string, toId: string, url: string) => Promise<boolean>
   merge: (fromId: string, toId: string) => Promise<boolean>
   duplicate: (sourceId: string, newName: string) => Promise<string | null>
@@ -143,6 +145,25 @@ export const useSpaceStore = create<State>((set, get) => ({
       get().pushToast('error', '存储写入失败,已回滚')
       return false
     }
+    return true
+  },
+
+  setTabPinned: async (spaceId, url, pinned) => {
+    const before = get().db
+    const next = space.setTabPinned(before, spaceId, url, pinned, Date.now())
+    if (next === before) return
+    set({ db: next })
+    const result = await writeDatabase(next)
+    if (!result.ok) { set({ db: before }); get().pushToast('error', '存储写入失败,已回滚') }
+  },
+
+  restoreTabUrl: async (spaceId, url) => {
+    const before = get().db
+    const next = space.restoreTabUrl(before, spaceId, url, Date.now())
+    if (next === before) return false
+    set({ db: next })
+    const result = await writeDatabase(next)
+    if (!result.ok) { set({ db: before }); get().pushToast('error', '存储写入失败,已回滚'); return false }
     return true
   },
 

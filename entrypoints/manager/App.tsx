@@ -29,13 +29,14 @@ import { useUseAsNewtab, useGroupTabsByDomain } from '@/lib/settings'
 import { discardInactiveInManagerWindow } from '@/lib/live-tabs'
 import { filterDatabase } from '@/lib/search'
 import { sortedForDisplay } from '@/lib/space'
+import { readSessionState } from '@/lib/session-state'
 import type { Tab, Database } from '@/lib/schema'
 
 export default function App() {
   const {
     db, loaded, toasts,
     load, archive, archiveNew, rename, remove, duplicate,
-    removeTab, moveTab, merge, importDb,
+    removeTab, moveTab, merge, importDb, setTabPinned, restoreTabUrl,
     setEmoji, setNote, togglePinned, reorder, reorderTabs,
     removeTabs, moveTabsBatch,
     dismissToast, pushToast,
@@ -289,6 +290,22 @@ export default function App() {
     void chrome.tabs.create({ url, active: true })
   }
 
+  const restoreSavedTabUrl = (spaceId: string, url: string) => {
+    const tab = db.spaces.find(space => space.id === spaceId)?.tabs.find(item => item.url === url)
+    if (!tab?.currentUrl) return
+    void (async () => {
+      if (!await restoreTabUrl(spaceId, url)) return
+      const state = await readSessionState()
+      for (const id of state.spaceIdToTabIds[spaceId] ?? []) {
+        const live = await chrome.tabs.get(id).catch(() => null)
+        if (live && (live.url || live.pendingUrl) === tab.currentUrl) {
+          await chrome.tabs.update(id, { url: tab.url })
+          break
+        }
+      }
+    })().catch(() => pushToast('error', 'Could not restore saved URL'))
+  }
+
   const handleLiveTabMove = async (tabId: number, toSpaceId: string) => {
     try {
       const { tab } = await moveLiveTabToSpace(tabId, toSpaceId)
@@ -517,6 +534,8 @@ export default function App() {
                 onDuplicate={handleDuplicate}
                 onTabOpen={openTabUrl}
                 onTabRemove={removeTab}
+                onTabPin={setTabPinned}
+                onTabRestoreUrl={restoreSavedTabUrl}
                 onTabMove={moveTab}
                 onTabReorder={reorderTabs}
                 onTabsRemove={removeTabs}

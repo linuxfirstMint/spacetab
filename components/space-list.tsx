@@ -13,6 +13,8 @@ interface Props {
   onDuplicate: (id: string) => void
   onTabOpen: (url: string) => void
   onTabRemove: (spaceId: string, url: string) => void
+  onTabPin: (spaceId: string, url: string, pinned: boolean) => void
+  onTabRestoreUrl: (spaceId: string, url: string) => void
   onTabMove: (fromId: string, toId: string, url: string) => void
   onTabReorder: (spaceId: string, orderedUrls: string[]) => void
   onTabsRemove: (spaceId: string, urls: string[]) => void
@@ -35,6 +37,8 @@ export function SpaceList({
   onDuplicate,
   onTabOpen,
   onTabRemove,
+  onTabPin,
+  onTabRestoreUrl,
   onTabMove,
   onTabReorder,
   onTabsRemove,
@@ -73,6 +77,8 @@ export function SpaceList({
           onDuplicate={onDuplicate}
           onTabOpen={onTabOpen}
           onTabRemove={onTabRemove}
+          onTabPin={onTabPin}
+          onTabRestoreUrl={onTabRestoreUrl}
           onTabMove={onTabMove}
           onTabReorder={onTabReorder}
           onTabsRemove={onTabsRemove}

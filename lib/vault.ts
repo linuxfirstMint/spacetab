@@ -268,7 +268,10 @@ export async function restoreLastActiveSpaceOnStartup(
     // Match URL occurrences one-to-one. Counts preserve duplicate tabs and
     // ensure extra same-URL tabs remain unregistered and are recovered below.
     const remaining = new Map<string, number>()
-    for (const tab of target.tabs) remaining.set(tab.url, (remaining.get(tab.url) ?? 0) + 1)
+    for (const tab of target.tabs) {
+      const wantedUrl = tab.currentUrl ?? tab.url
+      remaining.set(wantedUrl, (remaining.get(wantedUrl) ?? 0) + 1)
+    }
     const candidates = allTabs
       .filter(tab =>
         (tab.windowId === vaultWindowId || tab.windowId === windowId) &&
@@ -300,7 +303,7 @@ export async function restoreLastActiveSpaceOnStartup(
       : undefined
     const selectedOccurrence = previousSelection?.urlOccurrence ?? 0
     const targetHasSelectedOccurrence = previousSelection
-      ? target.tabs.filter(tab => tab.url === previousSelection.url).length > selectedOccurrence
+      ? target.tabs.filter(tab => (tab.currentUrl ?? tab.url) === previousSelection.url).length > selectedOccurrence
       : false
     const restoredTab = selectionCandidates?.[selectedOccurrence]
       ?? (targetHasSelectedOccurrence ? undefined : restoredActiveTab)
@@ -420,14 +423,14 @@ async function switchToSpaceUnlocked(
   const knownIds = state.spaceIdToTabIds[toSpaceId] ?? []
   const lastActiveTab = await readLastActiveTab(toSpaceId)
   const aliveKnownIds = await filterAlive(knownIds)
-  const wantedUrls = new Set(toSpaceTabs.map((tt) => tt.url))
+  const wantedUrls = new Set(toSpaceTabs.map((tt) => tt.currentUrl ?? tt.url))
   const liveUrlCounts = new Map<string, number>()
   const wantedKnownIds: number[] = []
   const orphanKnownIds: number[] = []
   // url → groupKey,从 space 的 tabs 里抽出来,用于把 chrome tabId 归到分组桶
   const urlToKey = new Map<string, string>()
   for (const tt of toSpaceTabs) {
-    if (tt.groupKey) urlToKey.set(tt.url, tt.groupKey)
+    if (tt.groupKey) urlToKey.set(tt.currentUrl ?? tt.url, tt.groupKey)
   }
   const tabIdsByKey = new Map<string, number[]>()
   const pushBucket = (key: string, id: number) => {
@@ -473,9 +476,10 @@ async function switchToSpaceUnlocked(
   const failed: Tab[] = []
   const newlyCreatedIds: number[] = []
   for (const tab of toSpaceTabs) {
-    const liveCount = liveUrlCounts.get(tab.url) ?? 0
+    const liveUrl = tab.currentUrl ?? tab.url
+    const liveCount = liveUrlCounts.get(liveUrl) ?? 0
     if (liveCount > 0) {
-      liveUrlCounts.set(tab.url, liveCount - 1)
+      liveUrlCounts.set(liveUrl, liveCount - 1)
       continue
     }
     try {
@@ -483,7 +487,7 @@ async function switchToSpaceUnlocked(
       // 让 Chrome 在后台加载真实内容(标题、favicon、页面)。不再 discard。
       const created = await chrome.tabs.create({
         windowId: focusedId,
-        url: tab.url,
+        url: liveUrl,
         active: false,
       })
       if (typeof created.id === 'number') {
@@ -540,7 +544,7 @@ async function switchToSpaceUnlocked(
     const matchingTargets = destination.filter(tab =>
       typeof tab.id === 'number'
       && targetIds.has(tab.id)
-      && getTabUrl(tab) === lastActiveTab.url,
+      && (getTabUrl(tab) === lastActiveTab.url || toSpaceTabs.some(saved => saved.url === lastActiveTab.url && (saved.currentUrl ?? saved.url) === getTabUrl(tab))),
     )
     activeTabId = matchingTargets[lastActiveTab.urlOccurrence ?? 0]?.id
   }

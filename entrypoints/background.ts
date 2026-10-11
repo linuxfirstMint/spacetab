@@ -1,6 +1,6 @@
-import { readDatabase } from '@/lib/storage'
+import { readDatabase, writeDatabase } from '@/lib/storage'
 import { readSessionState } from '@/lib/session-state'
-import { sortedForDisplay } from '@/lib/space'
+import { sortedForDisplay, updateTabCurrentUrl } from '@/lib/space'
 import { onTabRemovedHandler, onWindowRemovedHandler, restoreLastActiveSpaceOnStartup, switchToSpace } from '@/lib/vault'
 import { appendStartupDiagnostic } from '@/lib/startup-diagnostics'
 import { readLastActiveTab, writeLastActiveTab } from '@/lib/last-active-tab'
@@ -182,6 +182,32 @@ export default defineBackground(() => {
         await writeLastActiveTab(spaceId, { tabId, url, urlOccurrence: Math.max(0, urlOccurrence) })
       } catch {
         // Tabs can close while an activation event is being processed.
+      }
+    })
+  })
+
+  chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+    const url = changeInfo.url
+    if (!url || !tab.active || url.startsWith('chrome://') || url.startsWith('chrome-extension://')) return
+    void navigator.locks.request('spacetab-switch', async () => {
+      try {
+        const state = await readSessionState()
+        const spaceId = state.currentSpaceId
+        const selection = spaceId ? await readLastActiveTab(spaceId) : null
+        if (!spaceId || selection?.tabId !== tabId || state.vaultWindowId === tab.windowId) return
+        const { db } = await readDatabase()
+        const savedTab = db.spaces.find(space => space.id === spaceId)?.tabs.find(item => item.url === selection.url || item.currentUrl === selection.url)
+        if (!savedTab?.pinned) return
+        const next = updateTabCurrentUrl(db, spaceId, savedTab.url, url)
+        if (next !== db) await writeDatabase(next)
+        const sameUrlTabs = (await chrome.tabs.query({ windowId: tab.windowId })).filter(candidate =>
+          typeof candidate.id === 'number' && (state.spaceIdToTabIds[spaceId] ?? []).includes(candidate.id)
+          && (candidate.url || candidate.pendingUrl) === url,
+        )
+        const urlOccurrence = sameUrlTabs.findIndex(candidate => candidate.id === tabId)
+        await writeLastActiveTab(spaceId, { tabId, url, urlOccurrence: Math.max(0, urlOccurrence) })
+      } catch {
+        // The tab can navigate or close while its Space metadata is updated.
       }
     })
   })

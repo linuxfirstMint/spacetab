@@ -23,6 +23,8 @@ interface Props {
   onSetNote: (id: string, note: string | undefined) => void
   onTabOpen: (url: string) => void
   onTabRemove: (spaceId: string, url: string) => void
+  onTabPin: (spaceId: string, url: string, pinned: boolean) => void
+  onTabRestoreUrl: (spaceId: string, url: string) => void
   onTabMove: (fromId: string, toId: string, url: string) => void
   onTabReorder: (spaceId: string, orderedUrls: string[]) => void
   onTabsRemove: (spaceId: string, urls: string[]) => void
@@ -48,6 +50,8 @@ export function SpaceItem({
   onSetNote,
   onTabOpen,
   onTabRemove,
+  onTabPin,
+  onTabRestoreUrl,
   onTabMove,
   onTabReorder,
   onTabsRemove,
@@ -349,6 +353,8 @@ export function SpaceItem({
         onTabOpen(url)
       }}
       onRemove={(url) => onTabRemove(space.id, url)}
+      onTogglePinned={(url, pinned) => onTabPin(space.id, url, pinned)}
+      onRestoreUrl={(url) => onTabRestoreUrl(space.id, url)}
       onMove={(toId, url) => onTabMove(space.id, toId, url)}
       onSelectToggle={handleSelectToggle}
       onSelectRange={handleSelectRange}

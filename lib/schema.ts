@@ -20,6 +20,10 @@ export const TabSchema = z.object({
   favIconUrl: z.string().url().optional(),
   /** 标签所在分组的逻辑 key(空间内唯一)。Chrome 的 groupId 不持久,这里用稳定 key */
   groupKey: z.string().optional(),
+  /** Current destination after navigation; url remains the saved/original URL. */
+  currentUrl: z.string().url().optional(),
+  /** Space-specific pin, independent of Chrome's native pinned tab state. */
+  pinned: z.boolean().optional(),
 })
 export type Tab = z.infer<typeof TabSchema>
 
