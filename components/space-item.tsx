@@ -1,11 +1,11 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
-import type { Space, SpaceColor, Tab } from '@/lib/schema'
+import type { Space, Tab } from '@/lib/schema'
 import { groupTabsForRender } from '@/lib/render-groups'
 import { TabGroupBlock } from './tab-group-block'
-import { colorForSpace, relativeTime, SPACE_COLOR_OPTIONS } from '@/lib/ui-utils'
+import { colorForSpace, relativeTime } from '@/lib/ui-utils'
 import { useT } from '@/lib/i18n'
-import { ArrowRight, ChevronDown, Copy, FileText, GripVertical, Palette, Pencil, Search, Sparkle, Star, StarFilled, Trash, X } from './icons'
+import { ArrowRight, ChevronDown, Copy, FileText, GripVertical, Pencil, Search, Sparkle, Star, StarFilled, Trash, X } from './icons'
 import { SpaceTabRow } from './space-tab-row'
 import { SpaceFolderBlock } from './space-folder-block'
 import { filterSpaceTabs } from '@/lib/search'
@@ -21,7 +21,6 @@ interface Props {
   onDuplicate: (id: string) => void
   onTogglePinned: (id: string) => void
   onSetEmoji: (id: string, emoji: string | undefined) => void
-  onSetColor: (id: string, color: SpaceColor | undefined) => void
   onSetNote: (id: string, note: string | undefined) => void
   onTabOpen: (url: string) => void
   onTabRemove: (spaceId: string, url: string) => void
@@ -55,7 +54,6 @@ export function SpaceItem({
   onDuplicate,
   onTogglePinned,
   onSetEmoji,
-  onSetColor,
   onSetNote,
   onTabOpen,
   onTabRemove,
@@ -84,8 +82,6 @@ export function SpaceItem({
   // 空间内本地搜索:点放大镜展开
   const [cardQuery, setCardQuery] = useState('')
   const [cardSearchOpen, setCardSearchOpen] = useState(false)
-  const [colorPickerOpen, setColorPickerOpen] = useState(false)
-  const colorPickerRef = useRef<HTMLDivElement | null>(null)
   const cardSearchInputRef = useRef<HTMLInputElement | null>(null)
   // 多选状态:选中的 url 集合 + 上次单点的锚点(用于 shift 区间选)
   const [selectedSet, setSelectedSet] = useState<Set<string>>(new Set())
@@ -98,18 +94,7 @@ export function SpaceItem({
   // 折叠状态:key 是 RenderedGroup.key。仅在 popup 生命周期内有效。
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
-  const palette = colorForSpace(space.id, space.color)
-
-  useEffect(() => {
-    if (!colorPickerOpen) return
-    const closeOnOutsideClick = (event: MouseEvent) => {
-      if (colorPickerRef.current && !colorPickerRef.current.contains(event.target as Node)) {
-        setColorPickerOpen(false)
-      }
-    }
-    document.addEventListener('mousedown', closeOnOutsideClick)
-    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
-  }, [colorPickerOpen])
+  const palette = colorForSpace(space.id)
 
   // focused 状态变化时滚到视口
   const cardRef = useRef<HTMLDivElement | null>(null)
@@ -455,7 +440,7 @@ export function SpaceItem({
   return (
     <div
       ref={cardRef}
-      className={`group/card relative z-0 bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700/80 transition-all duration-150 hover:z-30 focus-within:z-30 hover:border-slate-300 dark:hover:border-slate-600 hover:-translate-y-0.5 hover:shadow-[0_4px_8px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.08)] ${
+      className={`group/card relative bg-white dark:bg-slate-900 rounded-xl border border-slate-200 dark:border-slate-700/80 transition-all duration-150 hover:border-slate-300 dark:hover:border-slate-600 hover:-translate-y-0.5 hover:shadow-[0_4px_8px_rgba(15,23,42,0.04),0_12px_32px_rgba(15,23,42,0.08)] ${
         focused ? 'ring-2 ring-slate-400 dark:ring-slate-500 ring-offset-2 ring-offset-slate-50 dark:ring-offset-slate-950' : ''
       } ${dropRingClass}`}
       onDragOver={handleDragOver}
@@ -606,55 +591,6 @@ export function SpaceItem({
             >
               {space.emoji ? <span aria-hidden>{space.emoji}</span> : <Sparkle className="w-3.5 h-3.5" />}
             </button>
-            <div ref={colorPickerRef} className="relative" onKeyDown={(event) => {
-              if (event.key === 'Escape') setColorPickerOpen(false)
-            }}>
-              <button
-                onClick={() => setColorPickerOpen((open) => !open)}
-                className={`w-7 h-7 flex items-center justify-center rounded-md transition-colors ${colorPickerOpen ? 'text-slate-700 dark:text-slate-200 bg-slate-100 dark:bg-slate-700' : 'text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700'}`}
-                title={t('editColor')}
-                aria-label={t('editColor')}
-                aria-expanded={colorPickerOpen}
-                aria-haspopup="true"
-              >
-                <Palette className="w-3.5 h-3.5" />
-              </button>
-              {colorPickerOpen && (
-                <div className="absolute right-0 top-full mt-2 z-40 w-48 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 p-2 shadow-xl" role="group" aria-label={t('editColor')}>
-                  <div className="grid grid-cols-3 gap-1.5">
-                    {SPACE_COLOR_OPTIONS.map(({ key, labelKey }) => {
-                      const option = colorForSpace(space.id, key)
-                      return (
-                        <button
-                          key={key}
-                          type="button"
-                          onClick={() => { onSetColor(space.id, key); setColorPickerOpen(false) }}
-                          className={`flex items-center gap-1.5 rounded-md px-1.5 py-1 text-[11px] text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 ${space.color === key ? 'ring-2 ring-slate-400 dark:ring-slate-500' : ''}`}
-                          aria-label={t(labelKey)}
-                          aria-pressed={space.color === key}
-                          title={t(labelKey)}
-                        >
-                          <span className="h-3 w-3 shrink-0 rounded-full" style={{ backgroundColor: option.hex }} aria-hidden />
-                          <span>{t(labelKey)}</span>
-                        </button>
-                      )
-                    })}
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => { onSetColor(space.id, undefined); setColorPickerOpen(false) }}
-                    className="mt-2 flex w-full items-center gap-2 rounded-md border-t border-slate-100 dark:border-slate-800 px-1.5 pt-2 text-left text-xs text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-slate-100"
-                    aria-label={t('colorDefault')}
-                    aria-pressed={!space.color}
-                    title={t('colorDefault')}
-                  >
-                    <span className={`h-3 w-3 shrink-0 rounded-full ${colorForSpace(space.id).dot}`} aria-hidden />
-                    {t('colorDefault')}
-                    {!space.color && <span className="ml-auto">✓</span>}
-                  </button>
-                </div>
-              )}
-            </div>
             <button
               onClick={() => {
                 const next = window.prompt(t('editNote'), space.note ?? '')
@@ -703,7 +639,7 @@ export function SpaceItem({
             <span className="w-px h-4 bg-slate-200 dark:bg-slate-700 mx-0.5" aria-hidden />
             <button
               onClick={() => onSwitch(space.id)}
-              className={`group/switch px-2.5 h-7 flex items-center gap-1 rounded-md text-xs font-medium ${palette.switchText} ${palette.switchBg} ${palette.switchRing} active:scale-[0.98] transition-all duration-100 shadow-sm hover:shadow-md`}
+              className={`group/switch px-2.5 h-7 flex items-center gap-1 rounded-md text-xs font-medium text-white ${palette.switchBg} ${palette.switchRing} active:scale-[0.98] transition-all duration-100 shadow-sm hover:shadow-md`}
               title={t('switchToSpaceTitle')}
             >
               <span>{t('switchAction')}</span>

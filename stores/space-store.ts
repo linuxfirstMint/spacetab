@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { EMPTY_DB, type Database, type SpaceColor, type Tab, type TabGroup } from '@/lib/schema'
+import { EMPTY_DB, type Database, type Tab, type TabGroup } from '@/lib/schema'
 import { readDatabase, writeDatabase } from '@/lib/storage'
 import * as space from '@/lib/space'
 import { purgeVaultedTabsForSpace, mergeSessionTags } from '@/lib/vault'
@@ -44,7 +44,6 @@ interface State {
   merge: (fromId: string, toId: string) => Promise<boolean>
   duplicate: (sourceId: string, newName: string) => Promise<string | null>
   setEmoji: (id: string, emoji: string | undefined) => Promise<void>
-  setColor: (id: string, color: SpaceColor | undefined) => Promise<void>
   setNote: (id: string, note: string | undefined) => Promise<void>
   togglePinned: (id: string) => Promise<void>
   reorder: (orderedIds: string[]) => Promise<void>
@@ -253,18 +252,6 @@ export const useSpaceStore = create<State>((set, get) => {
   setEmoji: async (id, emoji) => {
     const before = get().db
     const next = space.setSpaceEmoji(before, id, emoji, Date.now())
-    if (next === before) return
-    set({ db: next })
-    const result = await writeDatabase(next)
-    if (!result.ok) {
-      set({ db: before })
-      get().pushToast('error', '存储写入失败,已回滚')
-    }
-  },
-
-  setColor: async (id, color) => {
-    const before = get().db
-    const next = space.setSpaceColor(before, id, color, Date.now())
     if (next === before) return
     set({ db: next })
     const result = await writeDatabase(next)

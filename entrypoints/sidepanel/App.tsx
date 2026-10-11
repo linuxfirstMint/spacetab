@@ -3,7 +3,6 @@ import { useSpaceStore } from '@/stores/space-store'
 import { sortedForDisplay } from '@/lib/space'
 import { archiveCurrentWindowToSpace, readActiveSpaceForWindow, switchToSpace } from '@/lib/vault'
 import { useTheme } from '@/lib/theme'
-import { colorForSpace } from '@/lib/ui-utils'
 
 export default function App() {
   useTheme()
@@ -48,19 +47,15 @@ export default function App() {
     </header>
     <p className="text-xs text-slate-500 mb-3">SPACES</p>
     <nav aria-label="Space一覧" className="space-y-2">
-      {sortedForDisplay(db.spaces).map(space => {
-        const palette = colorForSpace(space.id, space.color)
-        const active = current === space.id
-        return <button key={space.id} disabled={busy} aria-current={active ? 'page' : undefined}
-        className={`w-full text-left rounded-xl px-4 py-3 ring-1 ${palette.countRing} disabled:opacity-50 ${active ? `${palette.switchBg} ${palette.switchText}` : `bg-white dark:bg-slate-900 ${palette.rowHoverBg}`}`}
+      {sortedForDisplay(db.spaces).map(space => <button key={space.id} disabled={busy} aria-current={current === space.id ? 'page' : undefined}
+        className={`w-full text-left rounded-xl px-4 py-3 disabled:opacity-50 ${current === space.id ? 'bg-indigo-600 text-white' : 'bg-white dark:bg-slate-900 hover:bg-indigo-100 dark:hover:bg-slate-800'}`}
         onClick={() => { void perform(async () => {
           const result = await switchToSpace(space.id, space.tabs, space.groups ?? [])
           if (result.failed.length) throw new Error('Some tabs failed to open')
         }) }}>
-        <span className="flex items-center gap-2 font-medium truncate"><span className={`h-2.5 w-2.5 shrink-0 rounded-full ${palette.dot}`} aria-hidden />{space.emoji && <span aria-hidden>{space.emoji}</span>}{space.name}</span>
+        <span className="block font-medium truncate">{space.emoji ?? '◉'} {space.name}</span>
         <span className="block text-xs opacity-70 mt-1">{current === space.id ? '現在のSpace · ' : ''}{space.tabs.length} タブ</span>
-      </button>
-      })}
+      </button>)}
     </nav>
     {loaded && !db.spaces.length && <p className="text-sm my-4 text-slate-500">今のタブを保存して、最初のSpaceを作ろう。</p>}
     <form className="mt-6 space-y-2" onSubmit={event => {

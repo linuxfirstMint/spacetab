@@ -1,4 +1,4 @@
-import type { Database, Space, SpaceColor, SpaceFolder, Tab, TabGroup } from './schema'
+import type { Database, Space, SpaceFolder, Tab, TabGroup } from './schema'
 
 /** 计算"已用过的最大数字 key 后缀",用于追加新 group 时避免冲突 */
 function maxKeySuffix(groups: TabGroup[] | undefined): number {
@@ -288,7 +288,6 @@ export function duplicateSpace(
     tabs: source.tabs.map((t) => ({ ...t })),
     createdAt: now,
     updatedAt: now,
-    ...(source.color ? { color: source.color } : {}),
   }
   return { ...db, spaces: [...db.spaces, copy] }
 }
@@ -350,25 +349,6 @@ export function setSpaceEmoji(
     const next: Space = { ...s, updatedAt: now }
     if (trimmed) next.emoji = trimmed
     else delete next.emoji
-    return next
-  })
-  if (!changed) return db
-  return { ...db, spaces }
-}
-
-export function setSpaceColor(
-  db: Database,
-  id: string,
-  color: SpaceColor | undefined,
-  now: number,
-): Database {
-  let changed = false
-  const spaces = db.spaces.map((s) => {
-    if (s.id !== id || s.color === color) return s
-    changed = true
-    const next: Space = { ...s, updatedAt: now }
-    if (color) next.color = color
-    else delete next.color
     return next
   })
   if (!changed) return db

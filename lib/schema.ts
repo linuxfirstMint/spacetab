@@ -14,10 +14,6 @@ export const TabGroupColorSchema = z.enum([
 ])
 export type TabGroupColor = z.infer<typeof TabGroupColorSchema>
 
-/** Theme hues used to color a Space; omitted values keep the legacy ID-derived color. */
-export const SpaceColorSchema = z.enum(['indigo', 'emerald', 'amber', 'pink', 'violet', 'cyan'])
-export type SpaceColor = z.infer<typeof SpaceColorSchema>
-
 export const TabSchema = z.object({
   url: z.string().url(),
   title: z.string(),
@@ -55,8 +51,6 @@ export const SpaceSchema = z.object({
   updatedAt: z.number(),
   /** 可选 emoji / 短字符,作为空间封面图标 */
   emoji: z.string().max(8).optional(),
-  /** Optional user-selected theme hue; missing values retain deterministic legacy colors. */
-  color: SpaceColorSchema.optional(),
   /** 可选简短备注(用户自由文本,~100 字符内即可) */
   note: z.string().max(500).optional(),
   /** 是否置顶。置顶的空间永远排在最前 */
