@@ -28,6 +28,19 @@ describe('safeParseDatabase', () => {
     expect(next.ok && next.db.spaces[0]?.tabs[0]).toMatchObject({ url: 'https://saved.example/', currentUrl: 'https://current.example/', pinned: true })
   })
 
+  it('round-trips flat folder membership and collapsed state while keeping legacy spaces valid', () => {
+    const legacy = safeParseDatabase(validDb)
+    const withFolder = safeParseDatabase({
+      ...validDb,
+      spaces: [{ ...validDb.spaces[0], folders: [{ id: 'folder-1', name: 'Reading', collapsed: true }], tabs: [{ url: 'https://example.com/', title: 'Example', pinned: true, folderId: 'folder-1' }] }],
+    })
+    expect(legacy.ok).toBe(true)
+    expect(withFolder.ok && withFolder.db.spaces[0]).toMatchObject({
+      folders: [{ id: 'folder-1', name: 'Reading', collapsed: true }],
+      tabs: [{ pinned: true, folderId: 'folder-1' }],
+    })
+  })
+
   it('rejects wrong version', () => {
     const r = safeParseDatabase({ ...validDb, version: 2 })
     expect(r.ok).toBe(false)

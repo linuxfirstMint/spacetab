@@ -20,6 +20,11 @@ function spaceNameMatches(space: Space, terms: string[]): boolean {
   return terms.every((t) => haystack.includes(t))
 }
 
+function folderMatches(folderName: string, terms: string[]): boolean {
+  const haystack = folderName.toLowerCase()
+  return terms.every((term) => haystack.includes(term))
+}
+
 /**
  * 过滤一个空间的标签:仅保留命中所有 term 的。
  * 如果空间名本身命中所有 term,则返回原 space(全部 tab 保留),让用户能浏览这个匹配空间的全貌。
@@ -28,9 +33,12 @@ export function filterSpaceTabs(space: Space, query: string): Space {
   const terms = normalizeQuery(query)
   if (terms.length === 0) return space
   if (spaceNameMatches(space, terms)) return space
-  const tabs = space.tabs.filter((t) => tabMatches(t, terms))
-  if (tabs.length === space.tabs.length) return space
-  return { ...space, tabs }
+  const matchedFolderIds = new Set((space.folders ?? []).filter((folder) => folderMatches(folder.name, terms)).map((folder) => folder.id))
+  const tabs = space.tabs.filter((tab) => tabMatches(tab, terms) || (tab.folderId && matchedFolderIds.has(tab.folderId)))
+  const usedFolderIds = new Set(tabs.flatMap((tab) => tab.folderId ? [tab.folderId] : []))
+  const folders = (space.folders ?? []).filter((folder) => usedFolderIds.has(folder.id) || matchedFolderIds.has(folder.id))
+  if (tabs.length === space.tabs.length && folders.length === (space.folders ?? []).length) return space
+  return { ...space, tabs, folders }
 }
 
 /**
@@ -48,9 +56,9 @@ export function filterDatabase(db: Database, query: string): Database {
       filteredSpaces.push(space)
       continue
     }
-    const matchedTabs = space.tabs.filter((t) => tabMatches(t, terms))
-    if (matchedTabs.length > 0) {
-      filteredSpaces.push({ ...space, tabs: matchedTabs })
+    const filtered = filterSpaceTabs(space, query)
+    if (filtered.tabs.length > 0 || filtered.folders?.length) {
+      filteredSpaces.push(filtered)
     }
   }
   return { ...db, spaces: filteredSpaces }

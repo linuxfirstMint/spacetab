@@ -15,6 +15,12 @@ interface Props {
   onTabRemove: (spaceId: string, url: string) => void
   onTabPin: (spaceId: string, url: string, pinned: boolean) => void
   onTabRestoreUrl: (spaceId: string, url: string) => void
+  onCreateFolder: (spaceId: string, name: string) => void
+  onRenameFolder: (spaceId: string, folderId: string, name: string) => void
+  onDeleteFolder: (spaceId: string, folderId: string) => void
+  onSetFolderCollapsed: (spaceId: string, folderId: string, collapsed: boolean) => void
+  onReorderFolders: (spaceId: string, folderIds: string[]) => void
+  onMoveTabToFolder: (spaceId: string, url: string, folderId: string | undefined) => void
   onTabMove: (fromId: string, toId: string, url: string) => void
   onTabReorder: (spaceId: string, orderedUrls: string[]) => void
   onTabsRemove: (spaceId: string, urls: string[]) => void
@@ -39,6 +45,12 @@ export function SpaceList({
   onTabRemove,
   onTabPin,
   onTabRestoreUrl,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onSetFolderCollapsed,
+  onReorderFolders,
+  onMoveTabToFolder,
   onTabMove,
   onTabReorder,
   onTabsRemove,
@@ -79,6 +91,12 @@ export function SpaceList({
           onTabRemove={onTabRemove}
           onTabPin={onTabPin}
           onTabRestoreUrl={onTabRestoreUrl}
+          onCreateFolder={onCreateFolder}
+          onRenameFolder={onRenameFolder}
+          onDeleteFolder={onDeleteFolder}
+          onSetFolderCollapsed={onSetFolderCollapsed}
+          onReorderFolders={onReorderFolders}
+          onMoveTabToFolder={onMoveTabToFolder}
           onTabMove={onTabMove}
           onTabReorder={onTabReorder}
           onTabsRemove={onTabsRemove}

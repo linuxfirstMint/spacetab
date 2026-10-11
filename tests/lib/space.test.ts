@@ -21,6 +21,12 @@ import {
   setTabPinned,
   updateTabCurrentUrl,
   restoreTabUrl,
+  createSpaceFolder,
+  renameSpaceFolder,
+  deleteSpaceFolder,
+  setSpaceFolderCollapsed,
+  reorderSpaceFolders,
+  moveTabToFolder,
 } from '@/lib/space'
 import type { Database, Space, Tab } from '@/lib/schema'
 
@@ -91,6 +97,66 @@ describe('Space pinned tabs', () => {
     const navigated = updateTabCurrentUrl(db, 'sp1', 'https://saved.example/', 'https://current.example/')
     expect(navigated.spaces[0]?.tabs[0]).toMatchObject({ url: 'https://saved.example/', currentUrl: 'https://current.example/' })
     expect(restoreTabUrl(navigated, 'sp1', 'https://saved.example/', 300).spaces[0]?.tabs[0]?.currentUrl).toBeUndefined()
+  })
+})
+
+describe('Space folders', () => {
+  const folderDb = () => makeDb([makeSpace({ tabs: [
+    { ...t('https://a/'), pinned: true, folderId: 'f1' },
+    { ...t('https://b/'), pinned: true, folderId: 'f1' },
+    { ...t('https://c/') },
+  ], folders: [{ id: 'f1', name: 'Reading' }, { id: 'f2', name: 'Work' }] })])
+
+  it('creates, renames, collapses, and reorders flat folders', () => {
+    let db = createSpaceFolder(makeDb([makeSpace()]), 'sp1', 'f1', '  Reading  ', 2)
+    db = renameSpaceFolder(db, 'sp1', 'f1', 'Reference', 3)
+    db = setSpaceFolderCollapsed(db, 'sp1', 'f1', true, 4)
+    db = createSpaceFolder(db, 'sp1', 'f2', 'Work', 5)
+    db = reorderSpaceFolders(db, 'sp1', ['f2', 'f1'], 6)
+    expect(db.spaces[0]?.folders).toEqual([{ id: 'f2', name: 'Work' }, { id: 'f1', name: 'Reference', collapsed: true }])
+  })
+
+  it('moves only pinned tabs and unpins a foldered tab without losing the tab', () => {
+    const db = folderDb()
+    expect(moveTabToFolder(db, 'sp1', 'https://c/', 'f2', 10)).toBe(db)
+    const moved = moveTabToFolder(db, 'sp1', 'https://c/', 'f2', 11)
+    // c is intentionally unpinned, so folder assignment is rejected.
+    expect(moved).toBe(db)
+    const pinned = setTabPinned(db, 'sp1', 'https://c/', true, 12)
+    const filed = moveTabToFolder(pinned, 'sp1', 'https://c/', 'f2', 13)
+    expect(filed.spaces[0]?.tabs.find((tab) => tab.url === 'https://c/')).toMatchObject({ pinned: true, folderId: 'f2' })
+    const unpinned = setTabPinned(filed, 'sp1', 'https://c/', false, 14)
+    expect(unpinned.spaces[0]?.tabs.find((tab) => tab.url === 'https://c/')).toMatchObject({ url: 'https://c/' })
+    expect(unpinned.spaces[0]?.tabs.find((tab) => tab.url === 'https://c/')).not.toHaveProperty('folderId')
+  })
+
+  it('deleting a folder keeps and unfiles its pinned tabs', () => {
+    const deleted = deleteSpaceFolder(folderDb(), 'sp1', 'f1', 20)
+    expect(deleted.spaces[0]?.tabs.map((tab) => tab.url)).toEqual(['https://a/', 'https://b/', 'https://c/'])
+    expect(deleted.spaces[0]?.tabs.filter((tab) => tab.folderId)).toHaveLength(0)
+    expect(deleted.spaces[0]?.folders?.map((folder) => folder.id)).toEqual(['f2'])
+  })
+
+  it('unfiles a tab when moving it to another Space', () => {
+    const db = makeDb([
+      makeSpace({ id: 'sp1', tabs: [{ ...t('https://a/'), pinned: true, folderId: 'f1' }], folders: [{ id: 'f1', name: 'Reading' }] }),
+      makeSpace({ id: 'sp2', tabs: [] }),
+    ])
+    const moved = moveTab(db, 'sp1', 'sp2', 'https://a/', 30)
+    expect(moved.spaces[1]?.tabs[0]).toMatchObject({ url: 'https://a/', pinned: true })
+    expect(moved.spaces[1]?.tabs[0]).not.toHaveProperty('folderId')
+  })
+
+  it('merges source folders with collision-safe IDs and keeps membership valid', () => {
+    const db = makeDb([
+      makeSpace({ id: 'src', tabs: [{ ...t('https://a/'), pinned: true, folderId: 'f1' }], folders: [{ id: 'f1', name: 'Source' }] }),
+      makeSpace({ id: 'dst', tabs: [{ ...t('https://b/'), pinned: true, folderId: 'f1' }], folders: [{ id: 'f1', name: 'Destination' }] }),
+    ])
+    const merged = mergeSpaces(db, 'src', 'dst', 40).spaces[0]!
+    expect(merged.folders).toHaveLength(2)
+    expect(new Set(merged.folders?.map((folder) => folder.id)).size).toBe(2)
+    expect(merged.tabs.find((tab) => tab.url === 'https://a/')?.folderId).not.toBe('f1')
+    expect(merged.tabs.some((tab) => merged.folders?.some((folder) => folder.id === tab.folderId))).toBe(true)
   })
 })
 

@@ -34,6 +34,16 @@ describe('serializeForExport / parseImport round trip', () => {
       expect(result.file.formatVersion).toBe(1)
     }
   })
+
+  it('preserves folder definitions, order, collapse state, and tab membership in backup files', () => {
+    const foldered: Database = {
+      ...sampleDb,
+      spaces: [{ ...sampleDb.spaces[0]!, folders: [{ id: 'f1', name: 'Reading', collapsed: true }], tabs: [{ url: 'https://a.com/', title: 'A', pinned: true, folderId: 'f1' }] }],
+    }
+    const result = parseImport(serializeForExport(foldered, 1234))
+    expect(result.ok).toBe(true)
+    if (result.ok) expect(result.file.db).toEqual(foldered)
+  })
 })
 
 describe('parseImport rejection cases', () => {

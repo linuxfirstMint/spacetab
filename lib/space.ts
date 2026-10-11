@@ -1,4 +1,4 @@
-import type { Database, Space, Tab, TabGroup } from './schema'
+import type { Database, Space, SpaceFolder, Tab, TabGroup } from './schema'
 
 /** 计算"已用过的最大数字 key 后缀",用于追加新 group 时避免冲突 */
 function maxKeySuffix(groups: TabGroup[] | undefined): number {
@@ -136,14 +136,108 @@ export function setTabPinned(db: Database, spaceId: string, url: string, pinned:
   let changed = false
   const spaces = db.spaces.map((s) => {
     if (s.id !== spaceId) return s
+    let spaceChanged = false
     const tabs = s.tabs.map((tab) => {
       if (tab.url !== url || Boolean(tab.pinned) === pinned) return tab
       changed = true
+      spaceChanged = true
       if (pinned) return { ...tab, pinned: true }
-      const { pinned: _pinned, ...rest } = tab
+      const { pinned: _pinned, folderId: _folderId, ...rest } = tab
       return rest
     })
-    return changed ? { ...s, tabs, updatedAt: now } : s
+    return spaceChanged ? { ...s, tabs, updatedAt: now } : s
+  })
+  return changed ? { ...db, spaces } : db
+}
+
+export function createSpaceFolder(db: Database, spaceId: string, folderId: string, name: string, now: number): Database {
+  const trimmed = name.trim()
+  if (!trimmed || !folderId) return db
+  let changed = false
+  const spaces = db.spaces.map((space) => {
+    if (space.id !== spaceId || (space.folders ?? []).some((folder) => folder.id === folderId)) return space
+    changed = true
+    const folder: SpaceFolder = { id: folderId, name: trimmed }
+    return { ...space, folders: [...(space.folders ?? []), folder], updatedAt: now }
+  })
+  return changed ? { ...db, spaces } : db
+}
+
+export function renameSpaceFolder(db: Database, spaceId: string, folderId: string, name: string, now: number): Database {
+  const trimmed = name.trim()
+  if (!trimmed) return db
+  let changed = false
+  const spaces = db.spaces.map((space) => {
+    if (space.id !== spaceId) return space
+    let spaceChanged = false
+    const folders = (space.folders ?? []).map((folder) => {
+      if (folder.id !== folderId || folder.name === trimmed) return folder
+      changed = true
+      spaceChanged = true
+      return { ...folder, name: trimmed }
+    })
+    return spaceChanged ? { ...space, folders, updatedAt: now } : space
+  })
+  return changed ? { ...db, spaces } : db
+}
+
+/** Deleting a folder always keeps its tabs pinned and in the Space, but makes them unfiled. */
+export function deleteSpaceFolder(db: Database, spaceId: string, folderId: string, now: number): Database {
+  let changed = false
+  const spaces = db.spaces.map((space) => {
+    if (space.id !== spaceId || !(space.folders ?? []).some((folder) => folder.id === folderId)) return space
+    changed = true
+    const folders = (space.folders ?? []).filter((folder) => folder.id !== folderId)
+    const tabs = space.tabs.map((tab) => {
+      if (tab.folderId !== folderId) return tab
+      const { folderId: _folderId, ...rest } = tab
+      return rest
+    })
+    return { ...space, folders, tabs, updatedAt: now }
+  })
+  return changed ? { ...db, spaces } : db
+}
+
+export function setSpaceFolderCollapsed(db: Database, spaceId: string, folderId: string, collapsed: boolean, now: number): Database {
+  let changed = false
+  const spaces = db.spaces.map((space) => {
+    if (space.id !== spaceId) return space
+    let spaceChanged = false
+    const folders = (space.folders ?? []).map((folder) => {
+      if (folder.id !== folderId || Boolean(folder.collapsed) === collapsed) return folder
+      changed = true
+      spaceChanged = true
+      return collapsed ? { ...folder, collapsed: true } : { id: folder.id, name: folder.name }
+    })
+    return spaceChanged ? { ...space, folders, updatedAt: now } : space
+  })
+  return changed ? { ...db, spaces } : db
+}
+
+export function reorderSpaceFolders(db: Database, spaceId: string, orderedIds: string[], now: number): Database {
+  const target = db.spaces.find((space) => space.id === spaceId)
+  if (!target?.folders || target.folders.length < 2) return db
+  const byId = new Map(target.folders.map((folder) => [folder.id, folder]))
+  const ordered = [...orderedIds, ...target.folders.map((folder) => folder.id)].filter((id, index, all) => byId.has(id) && all.indexOf(id) === index).map((id) => byId.get(id)!)
+  if (ordered.every((folder, index) => folder.id === target.folders?.[index]?.id)) return db
+  return { ...db, spaces: db.spaces.map((space) => space.id === spaceId ? { ...space, folders: ordered, updatedAt: now } : space) }
+}
+
+export function moveTabToFolder(db: Database, spaceId: string, url: string, folderId: string | undefined, now: number): Database {
+  let changed = false
+  const spaces = db.spaces.map((space) => {
+    if (space.id !== spaceId) return space
+    const tab = space.tabs.find((item) => item.url === url)
+    if (!tab || !tab.pinned || (folderId !== undefined && !(space.folders ?? []).some((folder) => folder.id === folderId))) return space
+    if (tab.folderId === folderId) return space
+    changed = true
+    const tabs = space.tabs.map((item) => {
+      if (item.url !== url) return item
+      if (folderId) return { ...item, folderId }
+      const { folderId: _folderId, ...rest } = item
+      return rest
+    })
+    return { ...space, tabs, updatedAt: now }
   })
   return changed ? { ...db, spaces } : db
 }
@@ -209,8 +303,29 @@ export function mergeSpaces(
   const to = db.spaces.find((s) => s.id === toId)
   if (!from || !to) return db
 
-  // 将 from 的标签追加到 to(appendTabs 内部去重)
-  const mergedTo = appendTabs(to, from.tabs, now)
+  // Keep the source folder structure while avoiding folder-ID collisions in the destination Space.
+  const destinationFolderIds = new Set((to.folders ?? []).map((folder) => folder.id))
+  const folderIdMap = new Map<string, string>()
+  const incomingFolders = (from.folders ?? []).map((folder) => {
+    let id = folder.id
+    let suffix = 1
+    while (destinationFolderIds.has(id)) id = `${folder.id}-${fromId}-${suffix++}`
+    destinationFolderIds.add(id)
+    folderIdMap.set(folder.id, id)
+    return { ...folder, id }
+  })
+  const incomingTabs = from.tabs.map((tab) => {
+    if (!tab.folderId) return tab
+    const folderId = folderIdMap.get(tab.folderId)
+    if (folderId) return { ...tab, folderId }
+    const { folderId: _folderId, ...unfiledTab } = tab
+    return unfiledTab
+  })
+  // appendTabs de-duplicates saved URLs; folder entries remain even when their tabs duplicate existing tabs.
+  const appended = appendTabs(to, incomingTabs, now)
+  const mergedTo = incomingFolders.length > 0
+    ? { ...appended, folders: [...(to.folders ?? []), ...incomingFolders] }
+    : appended
   return {
     ...db,
     spaces: db.spaces
@@ -370,11 +485,12 @@ export function moveTab(
   const toSpace = db.spaces.find((s) => s.id === toId)
   if (!toSpace) return db
 
+  const { folderId: _folderId, ...unfiledTab } = tab
   const afterRemove = removeTabFromSpace(db, fromId, tabUrl, now)
   return {
     ...afterRemove,
     spaces: afterRemove.spaces.map((s) =>
-      s.id === toId ? appendTabs(s, [tab], now) : s,
+      s.id === toId ? appendTabs(s, [unfiledTab], now) : s,
     ),
   }
 }
@@ -414,7 +530,10 @@ export function moveTabs(
   const moveSet = new Set(urls)
   // 保持源空间的相对顺序
   for (const t of fromSpace.tabs) {
-    if (moveSet.has(t.url)) moving.push(t)
+    if (moveSet.has(t.url)) {
+      const { folderId: _folderId, ...unfiledTab } = t
+      moving.push(unfiledTab)
+    }
   }
   if (moving.length === 0) return db
   const afterRemove = removeTabsFromSpace(db, fromId, urls, now)

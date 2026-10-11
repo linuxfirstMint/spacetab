@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import type { Tab, Space } from '@/lib/schema'
+import type { Tab, Space, SpaceFolder } from '@/lib/schema'
 import { useT } from '@/lib/i18n'
 import type { SpacePalette } from '@/lib/ui-utils'
 import { ArrowRight, Pin, Trash } from './icons'
@@ -8,6 +8,9 @@ import { ArrowRight, Pin, Trash } from './icons'
 interface Props {
   tab: Tab
   otherSpaces: Space[]
+  folders: SpaceFolder[]
+  folderId?: string
+  onMoveToFolder: (url: string, folderId: string | undefined) => void
   palette: SpacePalette
   fromSpaceId: string
   selected: boolean
@@ -36,6 +39,9 @@ const sameSpaceMarker = (spaceId: string) => `application/x-spacetab-tab-from-${
 export function SpaceTabRow({
   tab,
   otherSpaces,
+  folders,
+  folderId,
+  onMoveToFolder,
   palette,
   fromSpaceId,
   selected,
@@ -250,6 +256,19 @@ export function SpaceTabRow({
           <button onClick={(e) => { e.stopPropagation(); onRestoreUrl(tab.url) }} className="w-6 h-6 flex items-center justify-center rounded text-slate-400 hover:text-slate-700 hover:bg-slate-100" title={t('restoreSavedUrl')} aria-label={t('restoreSavedUrl')}>↶</button>
         )}
         <button onClick={(e) => { e.stopPropagation(); onTogglePinned(tab.url, !tab.pinned) }} className={`w-6 h-6 flex items-center justify-center rounded ${tab.pinned ? 'text-emerald-600' : 'text-slate-400'} hover:text-slate-700 hover:bg-slate-100`} title={tab.pinned ? t('unpinFromSpaceTab') : t('pinToSpace')} aria-label={tab.pinned ? t('unpinFromSpaceTab') : t('pinToSpace')}>{tab.pinned ? '📌' : <Pin className="w-3 h-3" />}</button>
+        {tab.pinned && folders.length > 0 && (
+          <select
+            aria-label={t('moveToFolder')}
+            title={t('moveToFolder')}
+            value={folderId ?? ''}
+            onClick={(e) => e.stopPropagation()}
+            onChange={(e) => onMoveToFolder(tab.url, e.currentTarget.value || undefined)}
+            className="max-w-24 h-6 rounded border border-slate-200 bg-white px-1 text-[10px] text-slate-600 dark:bg-slate-900 dark:border-slate-700 dark:text-slate-300"
+          >
+            <option value="">{t('unfiledFolder')}</option>
+            {folders.map((folder) => <option key={folder.id} value={folder.id}>{folder.name}</option>)}
+          </select>
+        )}
         {otherSpaces.length > 0 && (
           <button
             ref={moveBtnRef}

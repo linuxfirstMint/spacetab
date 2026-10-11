@@ -24,8 +24,17 @@ export const TabSchema = z.object({
   currentUrl: z.string().url().optional(),
   /** Space-specific pin, independent of Chrome's native pinned tab state. */
   pinned: z.boolean().optional(),
+  /** Flat Space folder membership. Folder nesting is intentionally unsupported. */
+  folderId: z.string().min(1).optional(),
 })
 export type Tab = z.infer<typeof TabSchema>
+
+export const SpaceFolderSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  collapsed: z.boolean().optional(),
+})
+export type SpaceFolder = z.infer<typeof SpaceFolderSchema>
 
 export const TabGroupSchema = z.object({
   key: z.string().min(1),
@@ -50,6 +59,8 @@ export const SpaceSchema = z.object({
   sortIndex: z.number().optional(),
   /** 标签分组定义。tabs[].groupKey 引用其中之一 */
   groups: z.array(TabGroupSchema).optional(),
+  /** User-defined flat folders for Space-pinned tabs. */
+  folders: z.array(SpaceFolderSchema).optional(),
 })
 export type Space = z.infer<typeof SpaceSchema>
 

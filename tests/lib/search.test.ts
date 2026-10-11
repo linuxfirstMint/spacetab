@@ -80,6 +80,23 @@ describe('filterDatabase', () => {
     expect(filterDatabase(db, 'GitHub').spaces).toHaveLength(1)
   })
 
+  it('matches folder names and keeps only their tabs visible', () => {
+    const folderSpace: Space = {
+      ...sp('folders', 'Projects', [
+        { ...t('https://one.example/', 'One'), pinned: true, folderId: 'f1' },
+        { ...t('https://two.example/', 'Two'), pinned: true, folderId: 'f2' },
+      ]),
+      folders: [{ id: 'f1', name: 'Reading list' }, { id: 'f2', name: 'Work' }],
+    }
+    const foldered: Database = {
+      version: 1,
+      spaces: [folderSpace],
+    }
+    const result = filterDatabase(foldered, 'reading list')
+    expect(result.spaces[0]?.tabs.map((tab) => tab.title)).toEqual(['One'])
+    expect(result.spaces[0]?.folders?.map((folder) => folder.name)).toEqual(['Reading list'])
+  })
+
   it('filters out spaces with no matching tabs and no name match', () => {
     const r = filterDatabase(db, 'nonexistent')
     expect(r.spaces).toHaveLength(0)
@@ -109,6 +126,13 @@ describe('filterSpaceTabs', () => {
 
   it('returns whole space when name matches', () => {
     expect(filterSpaceTabs(space, 'work')).toBe(space)
+  })
+
+  it('keeps a folder and its matching tabs visible when searching for the folder name', () => {
+    const foldered = { ...space, folders: [{ id: 'f1', name: 'Reference' }], tabs: [{ ...space.tabs[0]!, pinned: true, folderId: 'f1' }, space.tabs[1]!] }
+    const result = filterSpaceTabs(foldered, 'reference')
+    expect(result.folders).toEqual([{ id: 'f1', name: 'Reference' }])
+    expect(result.tabs.map((tab) => tab.title)).toEqual(['Alpha'])
   })
 })
 

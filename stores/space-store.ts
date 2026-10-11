@@ -34,6 +34,12 @@ interface State {
   removeTab: (spaceId: string, url: string) => Promise<boolean>
   setTabPinned: (spaceId: string, url: string, pinned: boolean) => Promise<void>
   restoreTabUrl: (spaceId: string, url: string) => Promise<boolean>
+  createFolder: (spaceId: string, name: string) => Promise<string | null>
+  renameFolder: (spaceId: string, folderId: string, name: string) => Promise<void>
+  deleteFolder: (spaceId: string, folderId: string) => Promise<void>
+  setFolderCollapsed: (spaceId: string, folderId: string, collapsed: boolean) => Promise<void>
+  reorderFolders: (spaceId: string, orderedIds: string[]) => Promise<void>
+  moveTabToFolder: (spaceId: string, url: string, folderId: string | undefined) => Promise<void>
   moveTab: (fromId: string, toId: string, url: string) => Promise<boolean>
   merge: (fromId: string, toId: string) => Promise<boolean>
   duplicate: (sourceId: string, newName: string) => Promise<string | null>
@@ -51,7 +57,20 @@ interface State {
 
 let toastSeq = 0
 
-export const useSpaceStore = create<State>((set, get) => ({
+export const useSpaceStore = create<State>((set, get) => {
+  const persistMutation = async (before: Database, next: Database): Promise<boolean> => {
+    if (next === before) return false
+    set({ db: next })
+    const result = await writeDatabase(next)
+    if (!result.ok) {
+      set({ db: before })
+      get().pushToast('error', '存储写入失败,已回滚')
+      return false
+    }
+    return true
+  }
+
+  return ({
   db: EMPTY_DB,
   loaded: false,
   toasts: [],
@@ -165,6 +184,38 @@ export const useSpaceStore = create<State>((set, get) => ({
     const result = await writeDatabase(next)
     if (!result.ok) { set({ db: before }); get().pushToast('error', '存储写入失败,已回滚'); return false }
     return true
+  },
+
+  createFolder: async (spaceId, name) => {
+    const before = get().db
+    const folderId = crypto.randomUUID()
+    const next = space.createSpaceFolder(before, spaceId, folderId, name, Date.now())
+    return await persistMutation(before, next) ? folderId : null
+  },
+
+  renameFolder: async (spaceId, folderId, name) => {
+    const before = get().db
+    await persistMutation(before, space.renameSpaceFolder(before, spaceId, folderId, name, Date.now()))
+  },
+
+  deleteFolder: async (spaceId, folderId) => {
+    const before = get().db
+    await persistMutation(before, space.deleteSpaceFolder(before, spaceId, folderId, Date.now()))
+  },
+
+  setFolderCollapsed: async (spaceId, folderId, collapsed) => {
+    const before = get().db
+    await persistMutation(before, space.setSpaceFolderCollapsed(before, spaceId, folderId, collapsed, Date.now()))
+  },
+
+  reorderFolders: async (spaceId, orderedIds) => {
+    const before = get().db
+    await persistMutation(before, space.reorderSpaceFolders(before, spaceId, orderedIds, Date.now()))
+  },
+
+  moveTabToFolder: async (spaceId, url, folderId) => {
+    const before = get().db
+    await persistMutation(before, space.moveTabToFolder(before, spaceId, url, folderId, Date.now()))
   },
 
   moveTab: async (fromId, toId, url) => {
@@ -327,4 +378,5 @@ export const useSpaceStore = create<State>((set, get) => ({
   dismissToast: (id) => {
     set((s) => ({ toasts: s.toasts.filter((t) => t.id !== id) }))
   },
-}))
+  })
+})

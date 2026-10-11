@@ -7,6 +7,7 @@ import { colorForSpace, relativeTime } from '@/lib/ui-utils'
 import { useT } from '@/lib/i18n'
 import { ArrowRight, ChevronDown, Copy, FileText, GripVertical, Pencil, Search, Sparkle, Star, StarFilled, Trash, X } from './icons'
 import { SpaceTabRow } from './space-tab-row'
+import { SpaceFolderBlock } from './space-folder-block'
 import { filterSpaceTabs } from '@/lib/search'
 import { GROUP_COLOR_BAR } from '@/lib/tab-groups'
 
@@ -25,6 +26,12 @@ interface Props {
   onTabRemove: (spaceId: string, url: string) => void
   onTabPin: (spaceId: string, url: string, pinned: boolean) => void
   onTabRestoreUrl: (spaceId: string, url: string) => void
+  onCreateFolder: (spaceId: string, name: string) => void
+  onRenameFolder: (spaceId: string, folderId: string, name: string) => void
+  onDeleteFolder: (spaceId: string, folderId: string) => void
+  onSetFolderCollapsed: (spaceId: string, folderId: string, collapsed: boolean) => void
+  onReorderFolders: (spaceId: string, folderIds: string[]) => void
+  onMoveTabToFolder: (spaceId: string, url: string, folderId: string | undefined) => void
   onTabMove: (fromId: string, toId: string, url: string) => void
   onTabReorder: (spaceId: string, orderedUrls: string[]) => void
   onTabsRemove: (spaceId: string, urls: string[]) => void
@@ -52,6 +59,12 @@ export function SpaceItem({
   onTabRemove,
   onTabPin,
   onTabRestoreUrl,
+  onCreateFolder,
+  onRenameFolder,
+  onDeleteFolder,
+  onSetFolderCollapsed,
+  onReorderFolders,
+  onMoveTabToFolder,
   onTabMove,
   onTabReorder,
   onTabsRemove,
@@ -142,9 +155,14 @@ export function SpaceItem({
   const visibleSpace = cardQuery ? filterSpaceTabs(space, cardQuery) : space
 
   // 分组渲染结果(关闭开关时不计算,直接走平铺)
+  const folderIds = new Set((visibleSpace.folders ?? []).map((folder) => folder.id))
+  const unfiledSpace = useMemo(
+    () => ({ ...visibleSpace, tabs: visibleSpace.tabs.filter((tab) => !tab.folderId || !folderIds.has(tab.folderId)) }),
+    [visibleSpace, folderIds],
+  )
   const rendered = useMemo(
-    () => (groupingEnabled ? groupTabsForRender(visibleSpace) : null),
-    [groupingEnabled, visibleSpace],
+    () => (groupingEnabled ? groupTabsForRender(unfiledSpace) : null),
+    [groupingEnabled, unfiledSpace],
   )
   const useFlatList = !rendered || rendered.singleton
 
@@ -335,6 +353,9 @@ export function SpaceItem({
       key={`${tab.url}-${i}`}
       tab={tab}
       otherSpaces={otherSpaces}
+      folders={visibleSpace.folders ?? []}
+      {...(tab.folderId ? { folderId: tab.folderId } : {})}
+      onMoveToFolder={(url, folderId) => onMoveTabToFolder(space.id, url, folderId)}
       palette={palette}
       fromSpaceId={space.id}
       selected={selectedSet.has(tab.url)}
@@ -372,6 +393,29 @@ export function SpaceItem({
       }}
     />
   )
+
+  const createFolder = () => {
+    const name = window.prompt(t('newFolder'))
+    if (name?.trim()) onCreateFolder(space.id, name.trim())
+  }
+
+  const renameFolder = (folderId: string, oldName: string) => {
+    const name = window.prompt(t('renameFolder'), oldName)
+    if (name?.trim()) onRenameFolder(space.id, folderId, name.trim())
+  }
+
+  const deleteFolder = (folderId: string, name: string) => {
+    if (window.confirm(t('confirmDeleteFolder', { name }))) onDeleteFolder(space.id, folderId)
+  }
+
+  const moveFolder = (folderId: string, offset: -1 | 1) => {
+    const ids = (space.folders ?? []).map((folder) => folder.id)
+    const index = ids.indexOf(folderId)
+    const target = index + offset
+    if (index < 0 || target < 0 || target >= ids.length) return
+    ;[ids[index], ids[target]] = [ids[target]!, ids[index]!]
+    onReorderFolders(space.id, ids)
+  }
 
   const toggleGroup = (key: string) => {
     setCollapsedGroups((prev) => {
@@ -495,6 +539,7 @@ export function SpaceItem({
           </div>
           {/* 操作按钮区:[搜索] | [改名 emoji 备注] | [置顶 复制 删除] | [切换] */}
           <div className="flex items-center gap-1 opacity-0 group-hover/card:opacity-100 focus-within:opacity-100 transition-opacity duration-150">
+            <button onClick={createFolder} className="px-2 h-7 rounded-md text-[11px] font-medium text-indigo-600 hover:bg-indigo-50 dark:text-indigo-300 dark:hover:bg-indigo-900/20" title={t('newFolder')} aria-label={t('newFolder')}>{t('newFolder')}</button>
             {space.tabs.length > 1 && (
               <>
                 <button
@@ -696,37 +741,52 @@ export function SpaceItem({
           )}
 
         {/* 标签列表(收起时整段不渲染) */}
-        {collapsed ? null : visibleSpace.tabs.length > 0 ? (
-          useFlatList ? (
-            <div className="mt-3 space-y-0.5">
-              {visibleSpace.tabs.map((tab, i) => renderTabRow(tab, i))}
-            </div>
-          ) : (
-            <div className="mt-3 space-y-0.5">
-              {rendered!.groups.map((g) => (
-                <TabGroupBlock
-                  key={g.key}
-                  group={g}
-                  otherLabel={t('categoryOther')}
-                  palette={palette}
-                  collapsed={collapsedGroups.has(g.key)}
-                  onToggleCollapse={() => toggleGroup(g.key)}
+        {collapsed ? null : (
+          <div className="mt-3 space-y-2">
+            {(visibleSpace.folders ?? []).map((folder) => {
+              const folderTabs = visibleSpace.tabs.filter((tab) => tab.folderId === folder.id)
+              const allFolderIds = (space.folders ?? []).map((item) => item.id)
+              const folderIndex = allFolderIds.indexOf(folder.id)
+              return (
+                <SpaceFolderBlock
+                  key={folder.id}
+                  folder={folder}
+                  count={folderTabs.length}
+                  canMoveUp={folderIndex > 0}
+                  canMoveDown={folderIndex >= 0 && folderIndex < allFolderIds.length - 1}
+                  onToggle={() => onSetFolderCollapsed(space.id, folder.id, !folder.collapsed)}
+                  onRename={() => renameFolder(folder.id, folder.name)}
+                  onDelete={() => deleteFolder(folder.id, folder.name)}
+                  onMoveUp={() => moveFolder(folder.id, -1)}
+                  onMoveDown={() => moveFolder(folder.id, 1)}
                 >
-                  {g.tabs.map((tab) =>
-                    renderTabRow(
-                      tab,
-                      visibleSpace.tabs.findIndex((tt) => tt.url === tab.url),
-                    ),
-                  )}
-                </TabGroupBlock>
-              ))}
-            </div>
-          )
-        ) : cardQuery ? (
-          <div className="mt-3 px-2 py-3 text-center text-xs text-slate-400 dark:text-slate-500">
-            {t('noSearchResults')}
+                  {folderTabs.map((tab) => renderTabRow(tab, visibleSpace.tabs.findIndex((item) => item.url === tab.url)))}
+                </SpaceFolderBlock>
+              )
+            })}
+            {unfiledSpace.tabs.length > 0 && (
+              <div className="space-y-0.5">
+                {useFlatList
+                  ? unfiledSpace.tabs.map((tab, i) => renderTabRow(tab, space.tabs.findIndex((item) => item.url === tab.url)))
+                  : rendered!.groups.map((group) => (
+                      <TabGroupBlock
+                        key={group.key}
+                        group={group}
+                        otherLabel={t('categoryOther')}
+                        palette={palette}
+                        collapsed={collapsedGroups.has(group.key)}
+                        onToggleCollapse={() => toggleGroup(group.key)}
+                      >
+                        {group.tabs.map((tab) => renderTabRow(tab, space.tabs.findIndex((item) => item.url === tab.url)))}
+                      </TabGroupBlock>
+                    ))}
+              </div>
+            )}
+            {cardQuery && visibleSpace.tabs.length === 0 && (visibleSpace.folders ?? []).length === 0 && (
+              <div className="px-2 py-3 text-center text-xs text-slate-400 dark:text-slate-500">{t('noSearchResults')}</div>
+            )}
           </div>
-        ) : null}
+        )}
       </div>
     </div>
   )

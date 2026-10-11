@@ -100,6 +100,33 @@ describe('useSpaceStore.removeTab', () => {
   })
 })
 
+describe('useSpaceStore folder actions', () => {
+  it('persists folder lifecycle and pinned-tab membership changes', async () => {
+    const id = await useSpaceStore.getState().archiveNew('Work', [
+      { url: 'https://a/', title: 'a', pinned: true },
+      { url: 'https://b/', title: 'b' },
+    ])
+    const folderId = await useSpaceStore.getState().createFolder(id!, 'Reading')
+    expect(folderId).toBeTruthy()
+    await useSpaceStore.getState().moveTabToFolder(id!, 'https://a/', folderId!)
+    await useSpaceStore.getState().setFolderCollapsed(id!, folderId!, true)
+    await useSpaceStore.getState().renameFolder(id!, folderId!, 'Reference')
+    let db = useSpaceStore.getState().db
+    expect(db.spaces[0]).toMatchObject({
+      folders: [{ id: folderId, name: 'Reference', collapsed: true }],
+      tabs: [{ url: 'https://a/', pinned: true, folderId }, { url: 'https://b/' }],
+    })
+    expect((await fakeBrowser.storage.local.get('db')).db).toEqual(db)
+
+    await useSpaceStore.getState().deleteFolder(id!, folderId!)
+    db = useSpaceStore.getState().db
+    expect(db.spaces[0]?.folders).toEqual([])
+    expect(db.spaces[0]?.tabs[0]).toMatchObject({ url: 'https://a/', pinned: true })
+    expect(db.spaces[0]?.tabs[0]).not.toHaveProperty('folderId')
+    expect((await fakeBrowser.storage.local.get('db')).db).toEqual(db)
+  })
+})
+
 describe('useSpaceStore.merge', () => {
   it('moves tabs from source into target and removes source space', async () => {
     const id1 = await useSpaceStore.getState().archiveNew('From', [
