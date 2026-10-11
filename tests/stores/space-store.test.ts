@@ -136,6 +136,24 @@ describe('useSpaceStore.remove', () => {
     expect(useSpaceStore.getState().db.spaces.some(space => space.id === id)).toBe(true)
     spy.mockRestore()
   })
+
+  it('restoring a deleted tab also recovers its deleted parent Space snapshot', async () => {
+    const id = await useSpaceStore.getState().archiveNew('Parent snapshot', [
+      { url: 'https://a.example/', title: 'A', pinned: true },
+      { url: 'https://b.example/', title: 'B' },
+    ])
+    await useSpaceStore.getState().setColor(id!, 'cyan')
+    await useSpaceStore.getState().removeTab(id!, 'https://a.example/')
+    await useSpaceStore.getState().remove(id!)
+    const records = (await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory as { id: string; kind: string }[]
+    const tabRecord = records.find(record => record.kind === 'tab')!
+    expect(await useSpaceStore.getState().restoreDeletion(tabRecord.id)).toBe(true)
+    const restored = useSpaceStore.getState().db.spaces[0]!
+    expect(restored.id).toBe(id)
+    expect(restored.color).toBe('cyan')
+    expect(restored.tabs.map(tab => tab.url)).toEqual(['https://a.example/', 'https://b.example/'])
+    expect((await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory).toEqual([])
+  })
 })
 
 describe('write-failure rollback', () => {
@@ -188,6 +206,28 @@ describe('useSpaceStore.removeTab', () => {
     expect(useSpaceStore.getState().db.spaces[0]!.tabs.map(tab => tab.url)).toEqual(['https://a.example/', 'https://b.example/', 'https://c.example/'])
     expect(useSpaceStore.getState().db.spaces[0]!.tabs[1]).toMatchObject({ pinned: true, folderId: 'f' })
     expect(await useSpaceStore.getState().restoreDeletion(record.id)).toBe(false)
+  })
+
+  it('keeps a recovery record when the URL already exists at the restore destination', async () => {
+    const id = await useSpaceStore.getState().archiveNew('Duplicate guard', [{ url: 'https://same.example/', title: 'Saved' }])
+    await useSpaceStore.getState().removeTab(id!, 'https://same.example/')
+    await useSpaceStore.getState().archive(id!, [{ url: 'https://same.example/', title: 'Newer live tab' }])
+    const record = ((await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory as { id: string }[])[0]!
+    expect(await useSpaceStore.getState().restoreDeletion(record.id)).toBe(false)
+    expect(useSpaceStore.getState().db.spaces[0]!.tabs).toEqual([{ url: 'https://same.example/', title: 'Newer live tab' }])
+    expect((await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory).toHaveLength(1)
+  })
+
+  it('leaves deletion history intact when restoring cannot persist', async () => {
+    const id = await useSpaceStore.getState().archiveNew('Restore write failure', [{ url: 'https://keep.example/', title: 'Keep' }])
+    await useSpaceStore.getState().removeTab(id!, 'https://keep.example/')
+    const record = ((await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory as { id: string }[])[0]!
+    const before = useSpaceStore.getState().db
+    const spy = vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'))
+    expect(await useSpaceStore.getState().restoreDeletion(record.id)).toBe(false)
+    expect(useSpaceStore.getState().db).toEqual(before)
+    expect((await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory).toHaveLength(1)
+    spy.mockRestore()
   })
 })
 

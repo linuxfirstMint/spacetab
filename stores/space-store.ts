@@ -429,18 +429,36 @@ export const useSpaceStore = create<State>((set, get) => {
       next = { ...before, spaces }
     } else {
       let spaceId = record.spaceId
+      let restoredParentSnapshot = false
       if (!before.spaces.some((item) => item.id === spaceId)) {
-        spaceId = crypto.randomUUID()
-        const recovered = { id: spaceId, name: record.spaceName, tabs: [], createdAt: record.deletedAt, updatedAt: Date.now() }
-        next = { ...before, spaces: [...before.spaces, recovered] }
+        const deletedSpace = history.find((item) => item.kind === 'space' && item.space.id === record.spaceId)
+        if (deletedSpace?.kind === 'space') {
+          spaceId = deletedSpace.space.id
+          const tabs = [...deletedSpace.space.tabs]
+          if (tabs.some((tab) => tab.url === record.tab.url)) return false
+          tabs.splice(Math.min(record.index, tabs.length), 0, record.tab)
+          const restored = { ...deletedSpace.space, tabs, updatedAt: Date.now() }
+          const spaces = [...before.spaces]
+          spaces.splice(Math.min(deletedSpace.index, spaces.length), 0, restored)
+          next = { ...before, spaces }
+          restoredParentSnapshot = true
+        } else {
+          spaceId = crypto.randomUUID()
+          const recovered = { id: spaceId, name: record.spaceName, tabs: [], createdAt: record.deletedAt, updatedAt: Date.now() }
+          next = { ...before, spaces: [...before.spaces, recovered] }
+        }
       } else next = before
-      const target = next.spaces.find((item) => item.id === spaceId)!
-      if (target.tabs.some((tab) => tab.url === record.tab.url)) return false
-      const tabs = [...target.tabs]
-      tabs.splice(Math.min(record.index, tabs.length), 0, record.tab)
-      next = { ...next, spaces: next.spaces.map((item) => item.id === spaceId ? { ...item, tabs, updatedAt: Date.now() } : item) }
+      if (!restoredParentSnapshot) {
+        const target = next.spaces.find((item) => item.id === spaceId)!
+        if (target.tabs.some((tab) => tab.url === record.tab.url)) return false
+        const tabs = [...target.tabs]
+        tabs.splice(Math.min(record.index, tabs.length), 0, record.tab)
+        next = { ...next, spaces: next.spaces.map((item) => item.id === spaceId ? { ...item, tabs, updatedAt: Date.now() } : item) }
+      }
     }
-    const remaining = history.filter((item) => item.id !== id)
+    const restoredSpaceId = record.kind === 'space' ? record.space.id : record.spaceId
+    const restoredSpaceRecord = record.kind === 'tab' ? history.find((item) => item.kind === 'space' && item.space.id === restoredSpaceId) : undefined
+    const remaining = history.filter((item) => item.id !== id && item.id !== restoredSpaceRecord?.id)
     try { const { favorites: _favorites, ...db } = next; await chrome.storage.local.set({ db, deletionHistory: remaining }) } catch { return false }
     set({ db: next })
     return true
