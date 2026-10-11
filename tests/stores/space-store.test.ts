@@ -109,6 +109,33 @@ describe('useSpaceStore.remove', () => {
     await useSpaceStore.getState().remove(id!)
     expect(useSpaceStore.getState().db.spaces).toHaveLength(0)
   })
+
+  it('stores the complete Space before deletion and restores its metadata and position', async () => {
+    const first = await useSpaceStore.getState().archiveNew('First', [])
+    const id = await useSpaceStore.getState().archiveNew('Recover me', [
+      { url: 'https://a.example/', title: 'A', pinned: true },
+      { url: 'https://b.example/', title: 'B' },
+    ])
+    await useSpaceStore.getState().setColor(id!, 'violet')
+    const folderId = await useSpaceStore.getState().createFolder(id!, 'Saved')
+    await useSpaceStore.getState().moveTabToFolder(id!, 'https://a.example/', folderId!)
+    await useSpaceStore.getState().remove(id!)
+    const history = (await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory as { id: string }[]
+    expect(history).toHaveLength(1)
+    expect(await useSpaceStore.getState().restoreDeletion(history[0]!.id)).toBe(true)
+    expect(useSpaceStore.getState().db.spaces.map(space => space.id)).toEqual([first, id])
+    const restored = useSpaceStore.getState().db.spaces[1]!
+    expect(restored.color).toBe('violet')
+    expect(restored.tabs[0]).toMatchObject({ pinned: true, folderId })
+  })
+
+  it('does not delete a Space if the combined deletion write fails', async () => {
+    const id = await useSpaceStore.getState().archiveNew('Keep', [])
+    const spy = vi.spyOn(fakeBrowser.storage.local, 'set').mockRejectedValueOnce(new Error('quota'))
+    await useSpaceStore.getState().remove(id!)
+    expect(useSpaceStore.getState().db.spaces.some(space => space.id === id)).toBe(true)
+    spy.mockRestore()
+  })
 })
 
 describe('write-failure rollback', () => {
@@ -147,6 +174,20 @@ describe('useSpaceStore.removeTab', () => {
     expect(ok).toBe(false)
     expect(setSpy).not.toHaveBeenCalled()
     setSpy.mockRestore()
+  })
+
+  it('restores deleted tab metadata at its prior index and avoids duplicate URLs', async () => {
+    const id = await useSpaceStore.getState().archiveNew('Tabs', [
+      { url: 'https://a.example/', title: 'A' },
+      { url: 'https://b.example/', title: 'B', pinned: true, folderId: 'f' },
+      { url: 'https://c.example/', title: 'C' },
+    ])
+    await useSpaceStore.getState().removeTab(id!, 'https://b.example/')
+    const record = ((await fakeBrowser.storage.local.get('deletionHistory')).deletionHistory as { id: string }[])[0]!
+    expect(await useSpaceStore.getState().restoreDeletion(record.id)).toBe(true)
+    expect(useSpaceStore.getState().db.spaces[0]!.tabs.map(tab => tab.url)).toEqual(['https://a.example/', 'https://b.example/', 'https://c.example/'])
+    expect(useSpaceStore.getState().db.spaces[0]!.tabs[1]).toMatchObject({ pinned: true, folderId: 'f' })
+    expect(await useSpaceStore.getState().restoreDeletion(record.id)).toBe(false)
   })
 })
 

@@ -105,6 +105,13 @@ export const AutoArchivedTabSchema = z.object({
 })
 export type AutoArchivedTab = z.infer<typeof AutoArchivedTabSchema>
 
+/** User initiated removals retained locally for recovery (URL and metadata only). */
+export const DeletionRecordSchema = z.discriminatedUnion('kind', [
+  z.object({ id: z.string(), kind: z.literal('tab'), spaceId: z.string(), spaceName: z.string(), tab: TabSchema, index: z.number().int().min(0), deletedAt: z.number() }),
+  z.object({ id: z.string(), kind: z.literal('space'), space: SpaceSchema, index: z.number().int().min(0), deletedAt: z.number() }),
+])
+export type DeletionRecord = z.infer<typeof DeletionRecordSchema>
+
 export const EMPTY_DB: Database = { version: 1, spaces: [] }
 
 export type ParseResult =

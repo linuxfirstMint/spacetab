@@ -7,6 +7,8 @@ import type { AutoArchiveSettings, AutoArchivedTab, UrlRule } from '@/lib/schema
 import { useSpaceStore } from '@/stores/space-store'
 import { normalizeUrlPattern } from '@/lib/url-rules'
 import { readUrlRules, writeUrlRules } from '@/lib/url-rule-storage'
+import { readDeletionHistory } from '@/lib/deletion-history'
+import type { DeletionRecord } from '@/lib/schema'
 
 interface Props {
   onExport: () => void
@@ -19,6 +21,7 @@ export function SettingsMenu({ onExport, onImport }: Props) {
   const [open, setOpen] = useState(false)
   const [autoArchive, setAutoArchive] = useState<AutoArchiveSettings>({ enabled: false, inactivityHours: 12 })
   const [archived, setArchived] = useState<AutoArchivedTab[]>([])
+  const [deleted, setDeleted] = useState<DeletionRecord[]>([])
   const spaces = useSpaceStore(state => state.db.spaces)
   const [rules, setRules] = useState<UrlRule[]>([])
   const [pattern, setPattern] = useState('https://*.example.com/*')
@@ -39,11 +42,13 @@ export function SettingsMenu({ onExport, onImport }: Props) {
     void readAutoArchiveSettings().then(setAutoArchive)
     void readUrlRules().then(setRules)
     void readAutoArchivedTabs().then(setArchived)
+    void readDeletionHistory().then(setDeleted)
     const onChanged = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
       if (area !== 'local') return
       if (changes.autoArchiveSettings) void readAutoArchiveSettings().then(setAutoArchive)
       if (changes.urlRoutingRules) void readUrlRules().then(setRules)
       if (changes.autoArchivedTabs) void readAutoArchivedTabs().then(setArchived)
+      if (changes.deletionHistory) void readDeletionHistory().then(setDeleted)
     }
     chrome.storage.onChanged.addListener(onChanged)
     return () => chrome.storage.onChanged.removeListener(onChanged)
@@ -51,6 +56,9 @@ export function SettingsMenu({ onExport, onImport }: Props) {
 
   const saveAutoArchive = async (next: AutoArchiveSettings) => {
     if (await writeAutoArchiveSettings(next)) setAutoArchive(next)
+  }
+  const restoreDeleted = async (id: string) => {
+    if (await useSpaceStore.getState().restoreDeletion(id)) setDeleted(await readDeletionHistory())
   }
 
   const themeLabel = (p: ThemePref): string => {
@@ -127,6 +135,11 @@ export function SettingsMenu({ onExport, onImport }: Props) {
             {archived.length > 0 && <div className="border-t border-slate-100 pt-2 dark:border-slate-700">
               <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Auto-archived · restore</div>
               {archived.slice().reverse().map(item => <button key={item.id} onClick={async () => { if (await restoreAutoArchivedTab(item.id)) setArchived(await readAutoArchivedTabs()) }} className="block w-full truncate rounded px-1 py-1 text-left text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800" title={item.url}>{item.title || item.url}</button>)}
+            </div>}
+            {deleted.length > 0 && <div className="border-t border-slate-100 pt-2 dark:border-slate-700">
+              <div className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Recently deleted · restore (up to 50)</div>
+              {deleted.slice().reverse().map(item => <button key={item.id} onClick={() => void restoreDeleted(item.id)} className="block w-full truncate rounded px-1 py-1 text-left text-xs text-slate-700 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-800" title={item.kind === 'space' ? item.space.name : item.tab.url}>{item.kind === 'space' ? `Space · ${item.space.name}` : `Tab · ${item.tab.title || item.tab.url}`}</button>)}
+              <p className="text-[10px] leading-4 text-slate-500">Restores saved URLs and Space structure. Page input and sign-in state are not restored.</p>
             </div>}
           </div>
           <div className="border-t border-slate-100 dark:border-slate-700">

@@ -4,6 +4,8 @@ import { readDatabase, readFavorites, writeDatabase, writeDatabaseAndFavorites, 
 import { addFavorite, removeFavorite, reorderFavorites, updateFavorite } from '@/lib/favorites'
 import * as space from '@/lib/space'
 import { purgeVaultedTabsForSpace, mergeSessionTags } from '@/lib/vault'
+import { appendDeletionRecords, readDeletionHistory } from '@/lib/deletion-history'
+import type { DeletionRecord } from '@/lib/schema'
 
 export type ToastKind = 'info' | 'error'
 export interface ToastAction {
@@ -56,6 +58,7 @@ interface State {
   reorder: (orderedIds: string[]) => Promise<void>
   reorderTabs: (spaceId: string, orderedUrls: string[]) => Promise<void>
   removeTabs: (spaceId: string, urls: string[]) => Promise<void>
+  restoreDeletion: (id: string) => Promise<boolean>
   moveTabsBatch: (fromId: string, toId: string, urls: string[]) => Promise<void>
   importDb: (next: Database) => Promise<boolean>
   pushToast: (kind: ToastKind, text: string, options?: ToastOptions) => void
@@ -65,6 +68,28 @@ interface State {
 let toastSeq = 0
 
 export const useSpaceStore = create<State>((set, get) => {
+  const persistDeletion = async (before: Database, next: Database, records: DeletionRecord[]): Promise<boolean> => {
+    return navigator.locks.request('spacetab-deletion-history', async () => {
+      const latest = (await readDatabase()).db
+      const eligible = records.filter((record) => record.kind === 'space'
+        ? latest.spaces.some((item) => item.id === record.space.id)
+        : latest.spaces.some((item) => item.id === record.spaceId && item.tabs.some((tab) => tab.url === record.tab.url)))
+      if (eligible.length === 0) return false
+      const history = await appendDeletionRecords(eligible)
+      if (!history) return false
+      let reconciled: Database = { ...latest, favorites: get().db.favorites }
+      for (const record of eligible) {
+        if (record.kind === 'space') reconciled = { ...reconciled, spaces: reconciled.spaces.filter((item) => item.id !== record.space.id) }
+        else reconciled = { ...reconciled, spaces: reconciled.spaces.map((item) => item.id === record.spaceId ? { ...item, tabs: item.tabs.filter((tab) => tab.url !== record.tab.url) } : item) }
+      }
+      try {
+        const { favorites: _favorites, ...db } = reconciled
+        await chrome.storage.local.set({ db, deletionHistory: history })
+      } catch { return false }
+      set({ db: reconciled })
+      return true
+    })
+  }
   const persistMutation = async (before: Database, next: Database): Promise<boolean> => {
     if (next === before) return false
     set({ db: next })
@@ -161,29 +186,34 @@ export const useSpaceStore = create<State>((set, get) => {
       get().pushToast('error', '空间已不存在')
       return
     }
+    const index = before.spaces.findIndex((item) => item.id === id)
+    const target = before.spaces[index]!
     const next = space.deleteSpace(before, id)
-    set({ db: next })
-    const result = await writeDatabase(next)
-    if (!result.ok) {
-      set({ db: before })
-      get().pushToast('error', '存储写入失败,已回滚')
+    const record: DeletionRecord = { id: crypto.randomUUID(), kind: 'space', space: target, index, deletedAt: Date.now() }
+    const ok = await persistDeletion(before, next, [record])
+    if (!ok) {
+      get().pushToast('error', '削除履歴を保存できませんでした。Space は削除していません')
       return
     }
     // 尽力关闭 vault 中该空间的标签,失败不影响主流程
     void purgeVaultedTabsForSpace(id).catch(() => undefined)
+    get().pushToast('info', 'Space を削除しました', { ttl: 8000, action: { label: '元に戻す', perform: () => { void get().restoreDeletion(record.id) } } })
   },
 
   removeTab: async (spaceId, url) => {
     const before = get().db
     const next = space.removeTabFromSpace(before, spaceId, url, Date.now())
     if (next === before) return false
-    set({ db: next })
-    const result = await writeDatabase(next)
-    if (!result.ok) {
-      set({ db: before })
-      get().pushToast('error', '存储写入失败,已回滚')
+    const source = before.spaces.find((item) => item.id === spaceId)!
+    const index = source.tabs.findIndex((tab) => tab.url === url)
+    const tab = source.tabs[index]!
+    const record: DeletionRecord = { id: crypto.randomUUID(), kind: 'tab', spaceId, spaceName: source.name, tab, index, deletedAt: Date.now() }
+    const ok = await persistDeletion(before, next, [record])
+    if (!ok) {
+      get().pushToast('error', '削除履歴を保存できませんでした。タブは削除していません')
       return false
     }
+    get().pushToast('info', 'タブを削除しました', { ttl: 8000, action: { label: '元に戻す', perform: () => { void get().restoreDeletion(record.id) } } })
     return true
   },
 
@@ -378,13 +408,43 @@ export const useSpaceStore = create<State>((set, get) => {
     const before = get().db
     const next = space.removeTabsFromSpace(before, spaceId, urls, Date.now())
     if (next === before) return
-    set({ db: next })
-    const result = await writeDatabase(next)
-    if (!result.ok) {
-      set({ db: before })
-      get().pushToast('error', '存储写入失败,已回滚')
-    }
+    const source = before.spaces.find((item) => item.id === spaceId)!
+    const records = source.tabs.flatMap((tab, index) => urls.includes(tab.url) ? [{ id: crypto.randomUUID(), kind: 'tab' as const, spaceId, spaceName: source.name, tab, index, deletedAt: Date.now() }] : [])
+    if (!(await persistDeletion(before, next, records))) get().pushToast('error', '削除履歴を保存できませんでした。タブは削除していません')
+    else get().pushToast('info', `${records.length} 件のタブを削除しました`, { ttl: 8000, action: { label: '元に戻す', perform: () => { void (async () => { for (const record of records.slice().reverse()) await get().restoreDeletion(record.id) })() } } })
   },
+
+  restoreDeletion: async (id) => navigator.locks.request('spacetab-deletion-history', async () => {
+    const history = await readDeletionHistory()
+    const record = history.find((item) => item.id === id)
+    if (!record) return false
+    const beforeRaw = (await readDatabase()).db
+    const before: Database = { ...beforeRaw, favorites: get().db.favorites }
+    let next: Database
+    if (record.kind === 'space') {
+      const restored = { ...record.space, id: before.spaces.some((item) => item.id === record.space.id) ? crypto.randomUUID() : record.space.id }
+      if (before.spaces.some((item) => item.id === restored.id)) return false
+      const spaces = [...before.spaces]
+      spaces.splice(Math.min(record.index, spaces.length), 0, restored)
+      next = { ...before, spaces }
+    } else {
+      let spaceId = record.spaceId
+      if (!before.spaces.some((item) => item.id === spaceId)) {
+        spaceId = crypto.randomUUID()
+        const recovered = { id: spaceId, name: record.spaceName, tabs: [], createdAt: record.deletedAt, updatedAt: Date.now() }
+        next = { ...before, spaces: [...before.spaces, recovered] }
+      } else next = before
+      const target = next.spaces.find((item) => item.id === spaceId)!
+      if (target.tabs.some((tab) => tab.url === record.tab.url)) return false
+      const tabs = [...target.tabs]
+      tabs.splice(Math.min(record.index, tabs.length), 0, record.tab)
+      next = { ...next, spaces: next.spaces.map((item) => item.id === spaceId ? { ...item, tabs, updatedAt: Date.now() } : item) }
+    }
+    const remaining = history.filter((item) => item.id !== id)
+    try { const { favorites: _favorites, ...db } = next; await chrome.storage.local.set({ db, deletionHistory: remaining }) } catch { return false }
+    set({ db: next })
+    return true
+  }),
 
   moveTabsBatch: async (fromId, toId, urls) => {
     const before = get().db
