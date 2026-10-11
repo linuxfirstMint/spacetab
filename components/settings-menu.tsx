@@ -3,7 +3,10 @@ import { useT } from '@/lib/i18n'
 import { useTheme, THEME_PREFS, type ThemePref } from '@/lib/theme'
 import { Settings, Download, Upload } from './icons'
 import { readAutoArchiveSettings, readAutoArchivedTabs, restoreAutoArchivedTab, writeAutoArchiveSettings } from '@/lib/auto-archive'
-import type { AutoArchiveSettings, AutoArchivedTab } from '@/lib/schema'
+import type { AutoArchiveSettings, AutoArchivedTab, UrlRule } from '@/lib/schema'
+import { useSpaceStore } from '@/stores/space-store'
+import { normalizeUrlPattern } from '@/lib/url-rules'
+import { readUrlRules, writeUrlRules } from '@/lib/url-rule-storage'
 
 interface Props {
   onExport: () => void
@@ -16,6 +19,11 @@ export function SettingsMenu({ onExport, onImport }: Props) {
   const [open, setOpen] = useState(false)
   const [autoArchive, setAutoArchive] = useState<AutoArchiveSettings>({ enabled: false, inactivityHours: 12 })
   const [archived, setArchived] = useState<AutoArchivedTab[]>([])
+  const spaces = useSpaceStore(state => state.db.spaces)
+  const [rules, setRules] = useState<UrlRule[]>([])
+  const [pattern, setPattern] = useState('https://*.example.com/*')
+  const [spaceId, setSpaceId] = useState('')
+  const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -29,10 +37,12 @@ export function SettingsMenu({ onExport, onImport }: Props) {
 
   useEffect(() => {
     void readAutoArchiveSettings().then(setAutoArchive)
+    void readUrlRules().then(setRules)
     void readAutoArchivedTabs().then(setArchived)
     const onChanged = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
       if (area !== 'local') return
       if (changes.autoArchiveSettings) void readAutoArchiveSettings().then(setAutoArchive)
+      if (changes.urlRoutingRules) void readUrlRules().then(setRules)
       if (changes.autoArchivedTabs) void readAutoArchivedTabs().then(setArchived)
     }
     chrome.storage.onChanged.addListener(onChanged)
@@ -78,6 +88,28 @@ export function SettingsMenu({ onExport, onImport }: Props) {
                 {themeLabel(p)}
               </button>
             ))}
+          </div>
+          <div className="border-t border-slate-100 dark:border-slate-700 p-3 space-y-2">
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">URL routing rules</div>
+            <p className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">Disabled until you add a rule. Matches full HTTP(S) URLs; * is a wildcard. Applies only to new links opened in a new tab, after redirects finish. Existing-tab navigation and OS links before Chrome receives them are not routed.</p>
+            {rules.map((rule, index) => <div key={rule.id} className="flex items-center gap-1 text-xs">
+              <input aria-label="Rule enabled" type="checkbox" checked={rule.enabled} onChange={async e => { const next = rules.map(item => item.id === rule.id ? { ...item, enabled: e.target.checked } : item); if (await writeUrlRules(next)) setRules(next) }} />
+              <span className="min-w-0 flex-1 truncate" title={rule.pattern}>{rule.pattern} → {spaces.find(space => space.id === rule.spaceId)?.name ?? 'Missing Space'}</span>
+              <button title="Edit rule" onClick={() => { setEditingRuleId(rule.id); setPattern(rule.pattern); setSpaceId(rule.spaceId) }}>Edit</button>
+              <button title="Move rule up in priority" disabled={index === 0} onClick={async () => { const next = [...rules]; [next[index - 1], next[index]] = [next[index]!, next[index - 1]!]; const ordered = next.map((item, i) => ({ ...item, priority: i })); if (await writeUrlRules(ordered)) setRules(ordered) }}>↑</button>
+              <button title="Move rule down in priority" disabled={index === rules.length - 1} onClick={async () => { const next = [...rules]; [next[index], next[index + 1]] = [next[index + 1]!, next[index]!]; const ordered = next.map((item, i) => ({ ...item, priority: i })); if (await writeUrlRules(ordered)) setRules(ordered) }}>↓</button>
+              <button title="Delete rule" onClick={async () => { const next = rules.filter(item => item.id !== rule.id); if (await writeUrlRules(next)) { setRules(next); if (editingRuleId === rule.id) setEditingRuleId(null) } }}>×</button>
+            </div>)}
+            <div className="space-y-1">
+              <input aria-label="URL pattern" value={pattern} onChange={e => setPattern(e.target.value)} className="w-full rounded border border-slate-200 bg-transparent p-1 text-xs dark:border-slate-700" placeholder="https://*.example.com/*" />
+              <div className="flex gap-1">
+                <select aria-label="Destination Space" value={spaceId} onChange={e => setSpaceId(e.target.value)} className="min-w-0 flex-1 rounded border border-slate-200 bg-transparent p-1 text-xs dark:border-slate-700">
+                  <option value="">Choose Space</option>{spaces.map(space => <option key={space.id} value={space.id}>{space.name}</option>)}
+                </select>
+                <button disabled={!normalizeUrlPattern(pattern) || !spaceId || !spaces.some(space => space.id === spaceId)} className="rounded border px-2 text-xs disabled:opacity-40" onClick={async () => { const clean = normalizeUrlPattern(pattern); if (!clean || !spaces.some(space => space.id === spaceId)) return; const next = editingRuleId ? rules.map(rule => rule.id === editingRuleId ? { ...rule, pattern: clean, spaceId } : rule) : [...rules, { id: crypto.randomUUID(), pattern: clean, spaceId, enabled: true, priority: rules.length }]; if (await writeUrlRules(next)) { setRules(next); setEditingRuleId(null) } }}>{editingRuleId ? 'Save' : 'Add'}</button>
+                {editingRuleId && <button className="rounded border px-2 text-xs" onClick={() => setEditingRuleId(null)}>Cancel</button>}
+              </div>
+            </div>
           </div>
           <div className="border-t border-slate-100 dark:border-slate-700 p-3 space-y-2">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">Automatic tab archive</div>

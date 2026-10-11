@@ -78,6 +78,16 @@ export const SpaceSchema = z.object({
 })
 export type Space = z.infer<typeof SpaceSchema>
 
+/** Explicit user-owned URL routing rules. Empty by default and stored locally. */
+export const UrlRuleSchema = z.object({
+  id: z.string().min(1),
+  pattern: z.string().min(1).max(500),
+  spaceId: z.string().min(1),
+  enabled: z.boolean(),
+  priority: z.number().int().min(0),
+})
+export type UrlRule = z.infer<typeof UrlRuleSchema>
+
 export const DatabaseSchema = z.object({
   version: z.literal(1),
   spaces: z.array(SpaceSchema),

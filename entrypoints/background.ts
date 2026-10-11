@@ -1,10 +1,13 @@
 import { readDatabase, writeDatabase } from '@/lib/storage'
 import { readSessionState } from '@/lib/session-state'
-import { sortedForDisplay, updateTabCurrentUrl } from '@/lib/space'
+import { appendTabs, sortedForDisplay, updateTabCurrentUrl } from '@/lib/space'
 import { onTabRemovedHandler, onWindowRemovedHandler, readActiveSpaceForWindow, restoreLastActiveSpaceOnStartup, switchToSpace } from '@/lib/vault'
 import { appendStartupDiagnostic } from '@/lib/startup-diagnostics'
 import { readLastActiveTab, writeLastActiveTab } from '@/lib/last-active-tab'
 import { initializeAutoArchive, markAutoArchiveTabActivated, markAutoArchiveTabUsed, runAutoArchiveSweep } from '@/lib/auto-archive'
+import { readUrlRules } from '@/lib/url-rule-storage'
+import { selectUrlRule } from '@/lib/url-rules'
+import { moveLiveTabToSpace } from '@/lib/vault'
 
 const NATURAL_STARTUP_DIAGNOSTIC_BUILD = 'natural-startup-local-diagnostic-v1'
 const STARTUP_DIAGNOSTICS_KEY = 'codexNaturalStartupDiagnostics'
@@ -198,6 +201,42 @@ export default defineBackground(() => {
 
   chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' || changeInfo.url) void runAutoArchiveSweep().catch(console.error)
+    // Route only a newly opened link (Chrome supplies openerTabId), after its
+    // redirects settle. Existing-tab navigation and manually created tabs stay put.
+    if (changeInfo.status === 'complete' && tab.openerTabId !== undefined && tab.id !== undefined) {
+      void navigator.locks.request('spacetab-url-routing', async () => {
+        const storageKey = 'urlRoutingProcessedTabIds'
+        let stored: Record<string, unknown>
+        try { stored = await chrome.storage.session.get(storageKey) } catch { return }
+        const processed = Array.isArray(stored[storageKey]) ? stored[storageKey] as number[] : []
+        if (processed.includes(tabId)) return
+        try { await chrome.storage.session.set({ [storageKey]: [...processed.slice(-499), tabId] }) } catch { return }
+        if (tab.pinned || tab.windowId === chrome.windows.WINDOW_ID_NONE) return
+        const url = tab.url || tab.pendingUrl
+        if (!url || !/^https?:\/\//i.test(url)) return
+        const { db } = await readDatabase()
+        const rule = selectUrlRule(await readUrlRules(), url, new Set(db.spaces.map(space => space.id)))
+        if (!rule) return
+        const state = await readSessionState()
+        // A Space owns one live window. A routing rule must never steal tabs from
+        // a different window that already owns its destination Space.
+        const owner = Object.entries(state.windowIdToSpaceId ?? {}).find(([id, sid]) => Number(id) !== tab.windowId && sid === rule.spaceId)
+        if (owner) return
+        const activeSpaceId = await readActiveSpaceForWindow(tab.windowId)
+        const target = db.spaces.find(space => space.id === rule.spaceId)
+        if (!target) return
+        const moved = await moveLiveTabToSpace(tabId, rule.spaceId)
+        if (!moved.tab) return
+        const nextDb = { ...db, spaces: db.spaces.map(space => space.id === rule.spaceId ? appendTabs(space, [moved.tab!], Date.now()) : space) }
+        if (nextDb !== db) {
+          const saved = await writeDatabase(nextDb)
+          if (!saved.ok) return
+        }
+        if (activeSpaceId === rule.spaceId) return
+        const updatedTarget = nextDb.spaces.find(space => space.id === rule.spaceId)!
+        await switchToSpace(rule.spaceId, updatedTarget.tabs, updatedTarget.groups ?? [], tab.windowId)
+      }).catch(console.error)
+    }
     const url = changeInfo.url
     if (!url || !tab.active || url.startsWith('chrome://') || url.startsWith('chrome-extension://')) return
     void navigator.locks.request('spacetab-switch', async () => {
