@@ -8,7 +8,7 @@ import { initializeAutoArchive, markAutoArchiveTabActivated, markAutoArchiveTabU
 import { readUrlRules } from '@/lib/url-rule-storage'
 import { selectUrlRule } from '@/lib/url-rules'
 import { moveLiveTabToSpace } from '@/lib/vault'
-import { LINK_PREVIEW_SESSION_KEY, parsePreviewUrl, readLinkPreviewSession } from '@/lib/link-preview'
+import { choosePreviewDestination, LINK_PREVIEW_SESSION_KEY, parsePreviewUrl, readLinkPreviewSession } from '@/lib/link-preview'
 
 const NATURAL_STARTUP_DIAGNOSTIC_BUILD = 'natural-startup-local-diagnostic-v1'
 const STARTUP_DIAGNOSTICS_KEY = 'codexNaturalStartupDiagnostics'
@@ -164,16 +164,26 @@ export default defineBackground(() => {
       if (!preview || preview.windowId !== sourceTab.windowId) return
       const url = parsePreviewUrl(sourceTab.url || sourceTab.pendingUrl)
       if (!url) return
-      let destinationWindowId = preview.sourceWindowId
+      let sourceWindow: chrome.windows.Window | undefined
       try {
-        const destination = await chrome.windows.get(destinationWindowId)
-        if (destination.type !== 'normal') throw new Error('Source window is unavailable')
+        sourceWindow = await chrome.windows.get(preview.sourceWindowId)
       } catch {
-        const destination = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
-        if (typeof destination.id !== 'number' || destination.id === preview.windowId) return
-        destinationWindowId = destination.id
+        // The source window may have closed while the preview was open.
       }
-      await chrome.tabs.create({ windowId: destinationWindowId, url, active: true })
+      let lastFocusedWindow: chrome.windows.Window | undefined
+      if (sourceWindow?.type !== 'normal') {
+        try {
+          lastFocusedWindow = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+        } catch {
+          // There may be no normal window left if the source was closed.
+        }
+      }
+      const destination = choosePreviewDestination(sourceWindow, lastFocusedWindow, preview.windowId)
+      if (destination.kind === 'existing-window') {
+        await chrome.tabs.create({ windowId: destination.windowId, url, active: true })
+      } else {
+        await chrome.windows.create({ url, type: 'normal', focused: true })
+      }
       await chrome.storage.session.remove(LINK_PREVIEW_SESSION_KEY)
       await chrome.windows.remove(preview.windowId).catch(() => undefined)
     }).catch(error => console.error('[SpaceTab] Could not move preview into a tab', error))

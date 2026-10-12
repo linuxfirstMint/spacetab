@@ -22,3 +22,21 @@ export function readLinkPreviewSession(value: unknown): LinkPreviewSession | nul
     ? { windowId: candidate.windowId!, sourceWindowId: candidate.sourceWindowId! }
     : null
 }
+
+export type PreviewDestination =
+  | { kind: 'existing-window'; windowId: number }
+  | { kind: 'new-window' }
+
+export function choosePreviewDestination(
+  sourceWindow: { id?: number | undefined; type?: string | undefined } | undefined,
+  lastFocusedWindow: { id?: number | undefined; type?: string | undefined } | undefined,
+  previewWindowId: number,
+): PreviewDestination {
+  if (sourceWindow?.type === 'normal' && typeof sourceWindow.id === 'number' && sourceWindow.id !== previewWindowId) {
+    return { kind: 'existing-window', windowId: sourceWindow.id }
+  }
+  if (lastFocusedWindow?.type === 'normal' && typeof lastFocusedWindow.id === 'number' && lastFocusedWindow.id !== previewWindowId) {
+    return { kind: 'existing-window', windowId: lastFocusedWindow.id }
+  }
+  return { kind: 'new-window' }
+}
