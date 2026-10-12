@@ -42,11 +42,12 @@ interface State {
   reorderFavorites: (orderedUrls: string[]) => Promise<void>
   syncFavorites: (favorites: Favorite[]) => void
   restoreTabUrl: (spaceId: string, url: string) => Promise<boolean>
-  createFolder: (spaceId: string, name: string) => Promise<string | null>
+  createFolder: (spaceId: string, name: string, parentId?: string) => Promise<string | null>
   renameFolder: (spaceId: string, folderId: string, name: string) => Promise<void>
   deleteFolder: (spaceId: string, folderId: string) => Promise<void>
   setFolderCollapsed: (spaceId: string, folderId: string, collapsed: boolean) => Promise<void>
   reorderFolders: (spaceId: string, orderedIds: string[]) => Promise<void>
+  moveFolder: (spaceId: string, folderId: string, parentId: string | undefined) => Promise<void>
   moveTabToFolder: (spaceId: string, url: string, folderId: string | undefined) => Promise<void>
   moveTab: (fromId: string, toId: string, url: string) => Promise<boolean>
   merge: (fromId: string, toId: string) => Promise<boolean>
@@ -267,10 +268,10 @@ export const useSpaceStore = create<State>((set, get) => {
     return true
   },
 
-  createFolder: async (spaceId, name) => {
+  createFolder: async (spaceId, name, parentId) => {
     const before = get().db
     const folderId = crypto.randomUUID()
-    const next = space.createSpaceFolder(before, spaceId, folderId, name, Date.now())
+    const next = space.createSpaceFolder(before, spaceId, folderId, name, Date.now(), parentId)
     return await persistMutation(before, next) ? folderId : null
   },
 
@@ -292,6 +293,11 @@ export const useSpaceStore = create<State>((set, get) => {
   reorderFolders: async (spaceId, orderedIds) => {
     const before = get().db
     await persistMutation(before, space.reorderSpaceFolders(before, spaceId, orderedIds, Date.now()))
+  },
+
+  moveFolder: async (spaceId, folderId, parentId) => {
+    const before = get().db
+    await persistMutation(before, space.moveSpaceFolder(before, spaceId, folderId, parentId, Date.now()))
   },
 
   moveTabToFolder: async (spaceId, url, folderId) => {
@@ -428,6 +434,13 @@ export const useSpaceStore = create<State>((set, get) => {
       spaces.splice(Math.min(record.index, spaces.length), 0, restored)
       next = { ...before, spaces }
     } else {
+      const restoreTabInto = (space: import('@/lib/schema').Space, tabs: Tab[]) => {
+        const folderIds = new Set((space.folders ?? []).map((folder) => folder.id))
+        const restoredTab = space.folders !== undefined && record.tab.folderId && !folderIds.has(record.tab.folderId)
+          ? (({ folderId: _folderId, ...tab }) => tab)(record.tab)
+          : record.tab
+        tabs.splice(Math.min(record.index, tabs.length), 0, restoredTab)
+      }
       let spaceId = record.spaceId
       let restoredParentSnapshot = false
       if (!before.spaces.some((item) => item.id === spaceId)) {
@@ -436,7 +449,7 @@ export const useSpaceStore = create<State>((set, get) => {
           spaceId = deletedSpace.space.id
           const tabs = [...deletedSpace.space.tabs]
           if (tabs.some((tab) => tab.url === record.tab.url)) return false
-          tabs.splice(Math.min(record.index, tabs.length), 0, record.tab)
+          restoreTabInto(deletedSpace.space, tabs)
           const restored = { ...deletedSpace.space, tabs, updatedAt: Date.now() }
           const spaces = [...before.spaces]
           spaces.splice(Math.min(deletedSpace.index, spaces.length), 0, restored)
@@ -452,7 +465,7 @@ export const useSpaceStore = create<State>((set, get) => {
         const target = next.spaces.find((item) => item.id === spaceId)!
         if (target.tabs.some((tab) => tab.url === record.tab.url)) return false
         const tabs = [...target.tabs]
-        tabs.splice(Math.min(record.index, tabs.length), 0, record.tab)
+        restoreTabInto(target, tabs)
         next = { ...next, spaces: next.spaces.map((item) => item.id === spaceId ? { ...item, tabs, updatedAt: Date.now() } : item) }
       }
     }

@@ -134,6 +134,20 @@ describe('filterSpaceTabs', () => {
     expect(result.folders).toEqual([{ id: 'f1', name: 'Reference' }])
     expect(result.tabs.map((tab) => tab.title)).toEqual(['Alpha'])
   })
+
+  it('keeps the ancestor path visible when a nested folder matches', () => {
+    const nested = { ...space, folders: [{ id: 'root', name: 'Projects' }, { id: 'child', name: 'Reading', parentId: 'root' }], tabs: [{ ...space.tabs[0]!, pinned: true, folderId: 'child' }, space.tabs[1]!] }
+    const result = filterSpaceTabs(nested, 'reading')
+    expect(result.folders?.map((folder) => folder.id)).toEqual(['root', 'child'])
+    expect(result.tabs).toHaveLength(1)
+  })
+
+  it('includes descendant folders and tabs when a parent folder name matches', () => {
+    const nested = { ...space, folders: [{ id: 'root', name: 'Projects' }, { id: 'child', name: 'Reading', parentId: 'root' }], tabs: [{ ...space.tabs[0]!, pinned: true, folderId: 'child' }, space.tabs[1]!] }
+    const result = filterSpaceTabs(nested, 'projects')
+    expect(result.folders?.map((folder) => folder.id)).toEqual(['root', 'child'])
+    expect(result.tabs).toHaveLength(1)
+  })
 })
 
 describe('filterLiveTabs', () => {

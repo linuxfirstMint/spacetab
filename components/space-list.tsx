@@ -17,7 +17,8 @@ interface Props {
   onTabFavorite: (spaceId: string, tab: Tab) => void
   favoriteUrls: string[]
   onTabRestoreUrl: (spaceId: string, url: string) => void
-  onCreateFolder: (spaceId: string, name: string) => void
+  onCreateFolder: (spaceId: string, name: string, parentId?: string) => void
+  onMoveFolder: (spaceId: string, folderId: string, parentId: string | undefined) => void
   onRenameFolder: (spaceId: string, folderId: string, name: string) => void
   onDeleteFolder: (spaceId: string, folderId: string) => void
   onSetFolderCollapsed: (spaceId: string, folderId: string, collapsed: boolean) => void
@@ -51,6 +52,7 @@ export function SpaceList({
   favoriteUrls,
   onTabRestoreUrl,
   onCreateFolder,
+  onMoveFolder,
   onRenameFolder,
   onDeleteFolder,
   onSetFolderCollapsed,
@@ -100,6 +102,7 @@ export function SpaceList({
           favoriteUrls={favoriteUrls}
           onTabRestoreUrl={onTabRestoreUrl}
           onCreateFolder={onCreateFolder}
+          onMoveFolder={onMoveFolder}
           onRenameFolder={onRenameFolder}
           onDeleteFolder={onDeleteFolder}
           onSetFolderCollapsed={onSetFolderCollapsed}

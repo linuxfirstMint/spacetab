@@ -34,8 +34,25 @@ export function filterSpaceTabs(space: Space, query: string): Space {
   if (terms.length === 0) return space
   if (spaceNameMatches(space, terms)) return space
   const matchedFolderIds = new Set((space.folders ?? []).filter((folder) => folderMatches(folder.name, terms)).map((folder) => folder.id))
-  const tabs = space.tabs.filter((tab) => tabMatches(tab, terms) || (tab.folderId && matchedFolderIds.has(tab.folderId)))
+  const allFolders = space.folders ?? []
+  const matchedSubtreeIds = new Set(matchedFolderIds)
+  let foundChild = true
+  while (foundChild) {
+    foundChild = false
+    for (const folder of allFolders) if (folder.parentId && matchedSubtreeIds.has(folder.parentId) && !matchedSubtreeIds.has(folder.id)) { matchedSubtreeIds.add(folder.id); foundChild = true }
+  }
+  const tabs = space.tabs.filter((tab) => tabMatches(tab, terms) || (tab.folderId && matchedSubtreeIds.has(tab.folderId)))
+  const byId = new Map((space.folders ?? []).map((folder) => [folder.id, folder]))
   const usedFolderIds = new Set(tabs.flatMap((tab) => tab.folderId ? [tab.folderId] : []))
+  for (const id of [...usedFolderIds, ...matchedFolderIds]) {
+    let parentId = byId.get(id)?.parentId
+    const visited = new Set<string>()
+    while (parentId && !visited.has(parentId)) {
+      visited.add(parentId)
+      usedFolderIds.add(parentId)
+      parentId = byId.get(parentId)?.parentId
+    }
+  }
   const folders = (space.folders ?? []).filter((folder) => usedFolderIds.has(folder.id) || matchedFolderIds.has(folder.id))
   if (tabs.length === space.tabs.length && folders.length === (space.folders ?? []).length) return space
   return { ...space, tabs, folders }

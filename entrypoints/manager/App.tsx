@@ -40,7 +40,7 @@ export default function App() {
     load, archive, archiveNew, rename, remove, duplicate,
     removeTab, moveTab, merge, importDb, setTabPinned, restoreTabUrl,
     addFavorite: addFavoriteToStore, removeFavorite, updateFavorite, reorderFavorites, syncFavorites,
-    createFolder, renameFolder, deleteFolder, setFolderCollapsed, reorderFolders, moveTabToFolder,
+    createFolder, renameFolder, deleteFolder, setFolderCollapsed, reorderFolders, moveFolder, moveTabToFolder,
     setEmoji, setColor, setNote, togglePinned, reorder, reorderTabs,
     removeTabs, moveTabsBatch,
     dismissToast, pushToast,
@@ -589,6 +589,7 @@ export default function App() {
                 }}
                 onTabRestoreUrl={restoreSavedTabUrl}
                 onCreateFolder={createFolder}
+                onMoveFolder={moveFolder}
                 onRenameFolder={renameFolder}
                 onDeleteFolder={deleteFolder}
                 onSetFolderCollapsed={setFolderCollapsed}

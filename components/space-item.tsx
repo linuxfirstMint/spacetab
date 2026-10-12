@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import type { Space, SpaceColor, Tab } from '@/lib/schema'
 import { groupTabsForRender } from '@/lib/render-groups'
+import { folderDepth } from '@/lib/space'
 import { TabGroupBlock } from './tab-group-block'
 import { colorForSpace, relativeTime, SPACE_COLOR_OPTIONS } from '@/lib/ui-utils'
 import { useT } from '@/lib/i18n'
@@ -29,7 +30,8 @@ interface Props {
   onTabFavorite: (spaceId: string, tab: Tab) => void
   favoriteUrls: string[]
   onTabRestoreUrl: (spaceId: string, url: string) => void
-  onCreateFolder: (spaceId: string, name: string) => void
+  onCreateFolder: (spaceId: string, name: string, parentId?: string) => void
+  onMoveFolder: (spaceId: string, folderId: string, parentId: string | undefined) => void
   onRenameFolder: (spaceId: string, folderId: string, name: string) => void
   onDeleteFolder: (spaceId: string, folderId: string) => void
   onSetFolderCollapsed: (spaceId: string, folderId: string, collapsed: boolean) => void
@@ -46,6 +48,21 @@ interface Props {
 }
 
 type DragKind = 'tab' | 'liveTab' | 'space-merge' | 'space-before' | 'space-after' | null
+
+function folderPath(folder: NonNullable<Space['folders']>[number], folders: NonNullable<Space['folders']>): string {
+  const byId = new Map(folders.map((item) => [item.id, item]))
+  const names = [folder.name]
+  let parentId = folder.parentId
+  const visited = new Set<string>([folder.id])
+  while (parentId && !visited.has(parentId)) {
+    visited.add(parentId)
+    const parent = byId.get(parentId)
+    if (!parent) break
+    names.unshift(parent.name)
+    parentId = parent.parentId
+  }
+  return names.join(' / ')
+}
 
 export function SpaceItem({
   space,
@@ -66,6 +83,7 @@ export function SpaceItem({
   favoriteUrls,
   onTabRestoreUrl,
   onCreateFolder,
+  onMoveFolder,
   onRenameFolder,
   onDeleteFolder,
   onSetFolderCollapsed,
@@ -372,7 +390,7 @@ export function SpaceItem({
       key={`${tab.url}-${i}`}
       tab={tab}
       otherSpaces={otherSpaces}
-      folders={visibleSpace.folders ?? []}
+      folders={(space.folders ?? []).map((folder) => ({ ...folder, name: folderPath(folder, space.folders ?? []) }))}
       {...(tab.folderId ? { folderId: tab.folderId } : {})}
       onMoveToFolder={(url, folderId) => onMoveTabToFolder(space.id, url, folderId)}
       palette={palette}
@@ -430,7 +448,8 @@ export function SpaceItem({
   }
 
   const moveFolder = (folderId: string, offset: -1 | 1) => {
-    const ids = (space.folders ?? []).map((folder) => folder.id)
+    const folder = (space.folders ?? []).find((item) => item.id === folderId)
+    const ids = (space.folders ?? []).filter((item) => item.parentId === folder?.parentId).map((item) => item.id)
     const index = ids.indexOf(folderId)
     const target = index + offset
     if (index < 0 || target < 0 || target >= ids.length) return
@@ -445,6 +464,39 @@ export function SpaceItem({
       else next.add(key)
       return next
     })
+  }
+
+  const renderFolder = (folder: NonNullable<Space['folders']>[number], level = 0): React.ReactNode => {
+    const allFolders = space.folders ?? []
+    const children = allFolders.filter((item) => item.parentId === folder.id)
+    const tabs = visibleSpace.tabs.filter((tab) => tab.folderId === folder.id)
+    const siblings = allFolders.filter((item) => item.parentId === folder.parentId)
+    const siblingIndex = siblings.findIndex((item) => item.id === folder.id)
+    const descendants = new Set<string>([folder.id])
+    let found = true
+    while (found) { found = false; for (const item of allFolders) if (item.parentId && descendants.has(item.parentId) && !descendants.has(item.id)) { descendants.add(item.id); found = true } }
+    const parentLabel = (item: NonNullable<Space['folders']>[number]) => {
+      const names = [item.name]
+      let parentId = item.parentId
+      while (parentId) { const parent = allFolders.find((candidate) => candidate.id === parentId); if (!parent) break; names.unshift(parent.name); parentId = parent.parentId }
+      return names.join(' / ')
+    }
+    const childName = () => {
+      const name = window.prompt(t('newFolder'))
+      if (name?.trim()) onCreateFolder(space.id, name.trim(), folder.id)
+    }
+    const parentOptions = allFolders.filter((item) => !descendants.has(item.id) && folderDepth(allFolders, item.id) + 1 <= 3)
+    return <div key={folder.id} style={{ marginLeft: level ? 12 : 0 }}>
+      <SpaceFolderBlock folder={folder} count={tabs.length} canMoveUp={siblingIndex > 0} canMoveDown={siblingIndex < siblings.length - 1}
+        onToggle={() => onSetFolderCollapsed(space.id, folder.id, !folder.collapsed)}
+        onRename={() => renameFolder(folder.id, folder.name)} onDelete={() => deleteFolder(folder.id, folder.name)}
+        onMoveUp={() => moveFolder(folder.id, -1)} onMoveDown={() => moveFolder(folder.id, 1)} onCreateChild={childName}
+        canCreateChild={level < 2} parentOptions={parentOptions.map((item) => ({ id: item.id, name: parentLabel(item) }))}
+        onMoveToParent={(parentId) => onMoveFolder(space.id, folder.id, parentId)}>
+        {tabs.map((tab) => renderTabRow(tab, visibleSpace.tabs.findIndex((item) => item.url === tab.url)))}
+        {children.map((child) => renderFolder(child, level + 1))}
+      </SpaceFolderBlock>
+    </div>
   }
 
   // 拖放高亮样式:跨空间 tab drop 用 violet,live tab 加入用 indigo,空间合并用 emerald
@@ -813,27 +865,7 @@ export function SpaceItem({
         {/* 标签列表(收起时整段不渲染) */}
         {collapsed ? null : (
           <div className="mt-3 space-y-2">
-            {(visibleSpace.folders ?? []).map((folder) => {
-              const folderTabs = visibleSpace.tabs.filter((tab) => tab.folderId === folder.id)
-              const allFolderIds = (space.folders ?? []).map((item) => item.id)
-              const folderIndex = allFolderIds.indexOf(folder.id)
-              return (
-                <SpaceFolderBlock
-                  key={folder.id}
-                  folder={folder}
-                  count={folderTabs.length}
-                  canMoveUp={folderIndex > 0}
-                  canMoveDown={folderIndex >= 0 && folderIndex < allFolderIds.length - 1}
-                  onToggle={() => onSetFolderCollapsed(space.id, folder.id, !folder.collapsed)}
-                  onRename={() => renameFolder(folder.id, folder.name)}
-                  onDelete={() => deleteFolder(folder.id, folder.name)}
-                  onMoveUp={() => moveFolder(folder.id, -1)}
-                  onMoveDown={() => moveFolder(folder.id, 1)}
-                >
-                  {folderTabs.map((tab) => renderTabRow(tab, visibleSpace.tabs.findIndex((item) => item.url === tab.url)))}
-                </SpaceFolderBlock>
-              )
-            })}
+            {(visibleSpace.folders ?? []).filter((folder) => !folder.parentId || !(visibleSpace.folders ?? []).some((item) => item.id === folder.parentId)).map((folder) => renderFolder(folder))}
             {unfiledSpace.tabs.length > 0 && (
               <div className="space-y-0.5">
                 {useFlatList

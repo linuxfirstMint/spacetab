@@ -1,10 +1,10 @@
 import { z } from 'zod'
-import { DatabaseSchema, type Database } from './schema'
+import { DatabaseSchema, safeParseDatabase, type Database } from './schema'
 import { mergeFavorites, normalizeFavorites } from './favorites'
 
 export const ExportFileSchema = z.object({
   format: z.literal('spacetab-export'),
-  formatVersion: z.literal(1),
+  formatVersion: z.union([z.literal(1), z.literal(2)]),
   exportedAt: z.number(),
   app: z.literal('SpaceTab'),
   db: DatabaseSchema,
@@ -17,7 +17,7 @@ export function serializeForExport(db: Database, now: number = Date.now()): stri
     : { ...db, favorites: normalizeFavorites(db.favorites) }
   const payload: ExportFile = {
     format: 'spacetab-export',
-    formatVersion: 1,
+    formatVersion: 2,
     exportedAt: now,
     app: 'SpaceTab',
     db: normalized,
@@ -38,7 +38,9 @@ export function parseImport(raw: string): ParseResult {
   }
   const result = ExportFileSchema.safeParse(parsed)
   if (!result.success) return { ok: false, reason: 'invalid-shape' }
-  return { ok: true, file: result.data }
+  const db = safeParseDatabase(result.data.db)
+  if (!db.ok) return { ok: false, reason: 'invalid-shape' }
+  return { ok: true, file: { ...result.data, db: db.db } }
 }
 
 // 合并:同 id 比较 updatedAt,较新者整空间替换;新 id 直接加入。

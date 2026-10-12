@@ -31,7 +31,7 @@ describe('serializeForExport / parseImport round trip', () => {
       expect(result.file.db).toEqual(sampleDb)
       expect(result.file.exportedAt).toBe(9999)
       expect(result.file.format).toBe('spacetab-export')
-      expect(result.file.formatVersion).toBe(1)
+      expect(result.file.formatVersion).toBe(2)
     }
   })
 
@@ -52,7 +52,7 @@ describe('serializeForExport / parseImport round trip', () => {
   it('preserves folder definitions, order, collapse state, and tab membership in backup files', () => {
     const foldered: Database = {
       ...sampleDb,
-      spaces: [{ ...sampleDb.spaces[0]!, folders: [{ id: 'f1', name: 'Reading', collapsed: true }], tabs: [{ url: 'https://a.com/', title: 'A', pinned: true, folderId: 'f1' }] }],
+      spaces: [{ ...sampleDb.spaces[0]!, folders: [{ id: 'f1', name: 'Reading', collapsed: true }, { id: 'f2', name: 'Books', parentId: 'f1' }], tabs: [{ url: 'https://a.com/', title: 'A', pinned: true, folderId: 'f2' }] }],
     }
     const result = parseImport(serializeForExport(foldered, 1234))
     expect(result.ok).toBe(true)
@@ -100,7 +100,7 @@ describe('parseImport rejection cases', () => {
     const r = parseImport(
       JSON.stringify({
         format: 'spacetab-export',
-        formatVersion: 2,
+        formatVersion: 3,
         exportedAt: 1,
         app: 'SpaceTab',
         db: sampleDb,

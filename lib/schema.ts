@@ -28,7 +28,7 @@ export const TabSchema = z.object({
   currentUrl: z.string().url().optional(),
   /** Space-specific pin, independent of Chrome's native pinned tab state. */
   pinned: z.boolean().optional(),
-  /** Flat Space folder membership. Folder nesting is intentionally unsupported. */
+  /** Space folder membership; folders can be nested up to three levels. */
   folderId: z.string().min(1).optional(),
 })
 export type Tab = z.infer<typeof TabSchema>
@@ -45,6 +45,7 @@ export const SpaceFolderSchema = z.object({
   id: z.string().min(1),
   name: z.string().min(1),
   collapsed: z.boolean().optional(),
+  parentId: z.string().min(1).optional(),
 })
 export type SpaceFolder = z.infer<typeof SpaceFolderSchema>
 
@@ -73,7 +74,7 @@ export const SpaceSchema = z.object({
   sortIndex: z.number().optional(),
   /** 标签分组定义。tabs[].groupKey 引用其中之一 */
   groups: z.array(TabGroupSchema).optional(),
-  /** User-defined flat folders for Space-pinned tabs. */
+  /** User-defined folders for Space-pinned tabs. */
   folders: z.array(SpaceFolderSchema).optional(),
 })
 export type Space = z.infer<typeof SpaceSchema>
@@ -120,6 +121,39 @@ export type ParseResult =
 
 export function safeParseDatabase(raw: unknown): ParseResult {
   const result = DatabaseSchema.safeParse(raw)
-  if (result.success) return { ok: true, db: result.data }
+  if (result.success) {
+    const spaces = result.data.spaces.map((space) => {
+      const folders = space.folders ?? []
+      const ids = new Set<string>()
+      const firstId = new Map<string, string>()
+      const unique = folders.map((folder) => {
+        let id = folder.id
+        let suffix = 1
+        while (ids.has(id)) id = `${folder.id}-${suffix++}`
+        ids.add(id)
+        if (!firstId.has(folder.id)) firstId.set(folder.id, id)
+        return { ...folder, id, ...(folder.parentId ? { parentId: firstId.get(folder.parentId) ?? folder.parentId } : {}) }
+      })
+      const byId = new Map(unique.map((folder) => [folder.id, folder]))
+      const normalized = unique.map((folder) => {
+        let parentId = folder.parentId
+        if (!parentId || !byId.has(parentId) || parentId === folder.id) return parentId ? { ...folder, parentId: undefined } : folder
+        let current = byId.get(parentId)
+        const seen = new Set([folder.id])
+        let depth = 1
+        while (current) {
+          if (seen.has(current.id) || depth >= 3) return { ...folder, parentId: undefined }
+          seen.add(current.id)
+          depth++
+          current = current.parentId ? byId.get(current.parentId) : undefined
+        }
+        return folder
+      })
+      const folderIds = new Map(folders.map((folder) => [folder.id, firstId.get(folder.id)!]))
+      const tabs = space.tabs.map((tab) => tab.folderId && folderIds.has(tab.folderId) ? { ...tab, folderId: folderIds.get(tab.folderId)! } : tab)
+      return { ...space, ...(space.folders ? { folders: normalized } : {}), tabs }
+    })
+    return { ok: true, db: { ...result.data, spaces } }
+  }
   return { ok: false, raw }
 }

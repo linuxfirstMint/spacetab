@@ -28,6 +28,7 @@ import {
   setSpaceFolderCollapsed,
   reorderSpaceFolders,
   moveTabToFolder,
+  moveSpaceFolder,
 } from '@/lib/space'
 import type { Database, Space, Tab } from '@/lib/schema'
 
@@ -117,6 +118,30 @@ describe('Space folders', () => {
     expect(db.spaces[0]?.folders).toEqual([{ id: 'f2', name: 'Work' }, { id: 'f1', name: 'Reference', collapsed: true }])
   })
 
+  it('creates nested folders to three levels, rejects a fourth level and ancestor cycles', () => {
+    let db = createSpaceFolder(makeDb([makeSpace()]), 'sp1', 'a', 'A', 1)
+    db = createSpaceFolder(db, 'sp1', 'b', 'B', 2, 'a')
+    db = createSpaceFolder(db, 'sp1', 'c', 'C', 3, 'b')
+    expect(createSpaceFolder(db, 'sp1', 'd', 'D', 4, 'c')).toBe(db)
+    const moved = moveSpaceFolder(db, 'sp1', 'a', 'c', 5)
+    expect(moved).toBe(db)
+    expect(db.spaces[0]?.folders).toMatchObject([{ id: 'a' }, { id: 'b', parentId: 'a' }, { id: 'c', parentId: 'b' }])
+  })
+
+  it('promotes child folders and tabs to the deleted folder parent', () => {
+    const db = makeDb([makeSpace({ folders: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B', parentId: 'a' }], tabs: [{ ...t('https://x/'), pinned: true, folderId: 'a' }, { ...t('https://y/'), pinned: true, folderId: 'b' }] })])
+    const deleted = deleteSpaceFolder(db, 'sp1', 'a', 10).spaces[0]!
+    expect(deleted.folders).toEqual([{ id: 'b', name: 'B' }])
+    expect(deleted.tabs.map((tab) => tab.folderId)).toEqual([undefined, 'b'])
+  })
+
+  it('moves a folder without allowing self or descendant destinations', () => {
+    const db = makeDb([makeSpace({ folders: [{ id: 'a', name: 'A' }, { id: 'b', name: 'B', parentId: 'a' }, { id: 'c', name: 'C' }] })])
+    expect(moveSpaceFolder(db, 'sp1', 'a', 'b', 1)).toBe(db)
+    expect(moveSpaceFolder(db, 'sp1', 'a', 'a', 1)).toBe(db)
+    expect(moveSpaceFolder(db, 'sp1', 'b', 'c', 2).spaces[0]?.folders?.find((folder) => folder.id === 'b')).toMatchObject({ id: 'b', parentId: 'c' })
+  })
+
   it('moves only pinned tabs and unpins a foldered tab without losing the tab', () => {
     const db = folderDb()
     expect(moveTabToFolder(db, 'sp1', 'https://c/', 'f2', 10)).toBe(db)
@@ -150,14 +175,23 @@ describe('Space folders', () => {
 
   it('merges source folders with collision-safe IDs and keeps membership valid', () => {
     const db = makeDb([
-      makeSpace({ id: 'src', tabs: [{ ...t('https://a/'), pinned: true, folderId: 'f1' }], folders: [{ id: 'f1', name: 'Source' }] }),
+      makeSpace({ id: 'src', tabs: [{ ...t('https://a/'), pinned: true, folderId: 'f2' }], folders: [{ id: 'f1', name: 'Source' }, { id: 'f2', name: 'Child', parentId: 'f1' }] }),
       makeSpace({ id: 'dst', tabs: [{ ...t('https://b/'), pinned: true, folderId: 'f1' }], folders: [{ id: 'f1', name: 'Destination' }] }),
     ])
     const merged = mergeSpaces(db, 'src', 'dst', 40).spaces[0]!
-    expect(merged.folders).toHaveLength(2)
-    expect(new Set(merged.folders?.map((folder) => folder.id)).size).toBe(2)
-    expect(merged.tabs.find((tab) => tab.url === 'https://a/')?.folderId).not.toBe('f1')
+    expect(merged.folders).toHaveLength(3)
+    expect(new Set(merged.folders?.map((folder) => folder.id)).size).toBe(3)
+    const movedChild = merged.folders?.find((folder) => folder.name === 'Child')
+    expect(movedChild?.parentId).toBe(merged.folders?.find((folder) => folder.name === 'Source')?.id)
+    expect(merged.tabs.find((tab) => tab.url === 'https://a/')?.folderId).toBe(movedChild?.id)
     expect(merged.tabs.some((tab) => merged.folders?.some((folder) => folder.id === tab.folderId))).toBe(true)
+  })
+
+  it('duplicates the complete nested folder tree and tab memberships', () => {
+    const db = makeDb([makeSpace({ folders: [{ id: 'f1', name: 'Parent' }, { id: 'f2', name: 'Child', parentId: 'f1' }], tabs: [{ ...t('https://a/'), pinned: true, folderId: 'f2' }] })])
+    const copied = duplicateSpace(db, 'sp1', 'sp2', 'Copy', 10).spaces[1]!
+    expect(copied.folders).toEqual(db.spaces[0]?.folders)
+    expect(copied.tabs[0]?.folderId).toBe('f2')
   })
 })
 

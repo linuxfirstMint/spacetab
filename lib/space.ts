@@ -150,15 +150,34 @@ export function setTabPinned(db: Database, spaceId: string, url: string, pinned:
   return changed ? { ...db, spaces } : db
 }
 
-export function createSpaceFolder(db: Database, spaceId: string, folderId: string, name: string, now: number): Database {
+export const MAX_FOLDER_DEPTH = 3
+
+export function folderDepth(folders: SpaceFolder[], folderId: string): number {
+  const byId = new Map(folders.map((folder) => [folder.id, folder]))
+  let depth = 1
+  let current = byId.get(folderId)
+  const visited = new Set<string>([folderId])
+  while (current?.parentId) {
+    if (visited.has(current.parentId)) return MAX_FOLDER_DEPTH + 1
+    visited.add(current.parentId)
+    current = byId.get(current.parentId)
+    if (!current) return MAX_FOLDER_DEPTH + 1
+    depth++
+  }
+  return depth
+}
+
+export function createSpaceFolder(db: Database, spaceId: string, folderId: string, name: string, now: number, parentId?: string): Database {
   const trimmed = name.trim()
   if (!trimmed || !folderId) return db
   let changed = false
   const spaces = db.spaces.map((space) => {
-    if (space.id !== spaceId || (space.folders ?? []).some((folder) => folder.id === folderId)) return space
+    const folders = space.folders ?? []
+    if (space.id !== spaceId || folders.some((folder) => folder.id === folderId)) return space
+    if (parentId && (!folders.some((folder) => folder.id === parentId) || folderDepth(folders, parentId) >= MAX_FOLDER_DEPTH)) return space
     changed = true
-    const folder: SpaceFolder = { id: folderId, name: trimmed }
-    return { ...space, folders: [...(space.folders ?? []), folder], updatedAt: now }
+    const folder: SpaceFolder = { id: folderId, name: trimmed, ...(parentId ? { parentId } : {}) }
+    return { ...space, folders: [...folders, folder], updatedAt: now }
   })
   return changed ? { ...db, spaces } : db
 }
@@ -181,17 +200,19 @@ export function renameSpaceFolder(db: Database, spaceId: string, folderId: strin
   return changed ? { ...db, spaces } : db
 }
 
-/** Deleting a folder always keeps its tabs pinned and in the Space, but makes them unfiled. */
+/** Delete a folder by promoting its children and tabs to its parent (or the root). */
 export function deleteSpaceFolder(db: Database, spaceId: string, folderId: string, now: number): Database {
   let changed = false
   const spaces = db.spaces.map((space) => {
     if (space.id !== spaceId || !(space.folders ?? []).some((folder) => folder.id === folderId)) return space
     changed = true
-    const folders = (space.folders ?? []).filter((folder) => folder.id !== folderId)
+    const parentId = (space.folders ?? []).find((folder) => folder.id === folderId)?.parentId
+    const folders = (space.folders ?? []).filter((folder) => folder.id !== folderId).map((folder) => folder.parentId === folderId
+      ? (parentId ? { ...folder, parentId } : (({ parentId: _parentId, ...rest }) => rest)(folder))
+      : folder)
     const tabs = space.tabs.map((tab) => {
       if (tab.folderId !== folderId) return tab
-      const { folderId: _folderId, ...rest } = tab
-      return rest
+      return parentId ? { ...tab, folderId: parentId } : (({ folderId: _folderId, ...rest }) => rest)(tab)
     })
     return { ...space, folders, tabs, updatedAt: now }
   })
@@ -207,7 +228,7 @@ export function setSpaceFolderCollapsed(db: Database, spaceId: string, folderId:
       if (folder.id !== folderId || Boolean(folder.collapsed) === collapsed) return folder
       changed = true
       spaceChanged = true
-      return collapsed ? { ...folder, collapsed: true } : { id: folder.id, name: folder.name }
+      return collapsed ? { ...folder, collapsed: true } : (({ collapsed: _collapsed, ...rest }) => rest)(folder)
     })
     return spaceChanged ? { ...space, folders, updatedAt: now } : space
   })
@@ -218,9 +239,33 @@ export function reorderSpaceFolders(db: Database, spaceId: string, orderedIds: s
   const target = db.spaces.find((space) => space.id === spaceId)
   if (!target?.folders || target.folders.length < 2) return db
   const byId = new Map(target.folders.map((folder) => [folder.id, folder]))
-  const ordered = [...orderedIds, ...target.folders.map((folder) => folder.id)].filter((id, index, all) => byId.has(id) && all.indexOf(id) === index).map((id) => byId.get(id)!)
-  if (ordered.every((folder, index) => folder.id === target.folders?.[index]?.id)) return db
-  return { ...db, spaces: db.spaces.map((space) => space.id === spaceId ? { ...space, folders: ordered, updatedAt: now } : space) }
+  const parentId = byId.get(orderedIds[0] ?? '')?.parentId
+  const siblings = target.folders.filter((folder) => folder.parentId === parentId)
+  const ordered = [...orderedIds, ...siblings.map((folder) => folder.id)].filter((id, index, all) => byId.get(id)?.parentId === parentId && all.indexOf(id) === index).map((id) => byId.get(id)!)
+  let cursor = 0
+  const nextFolders = target.folders.map((folder) => folder.parentId === parentId ? ordered[cursor++]! : folder)
+  if (nextFolders.every((folder, index) => folder.id === target.folders?.[index]?.id)) return db
+  return { ...db, spaces: db.spaces.map((space) => space.id === spaceId ? { ...space, folders: nextFolders, updatedAt: now } : space) }
+}
+
+export function moveSpaceFolder(db: Database, spaceId: string, folderId: string, parentId: string | undefined, now: number): Database {
+  const target = db.spaces.find((item) => item.id === spaceId)
+  const folders = target?.folders ?? []
+  const moving = folders.find((folder) => folder.id === folderId)
+  if (!target || !moving || parentId === folderId) return db
+  if (parentId && !folders.some((folder) => folder.id === parentId)) return db
+  const descendants = new Set<string>([folderId])
+  let changed = true
+  while (changed) {
+    changed = false
+    for (const folder of folders) if (folder.parentId && descendants.has(folder.parentId) && !descendants.has(folder.id)) { descendants.add(folder.id); changed = true }
+  }
+  if (parentId && descendants.has(parentId)) return db
+  const newDepth = parentId ? folderDepth(folders, parentId) + 1 : 1
+  const subtreeDepth = Math.max(...folders.filter((folder) => descendants.has(folder.id)).map((folder) => folderDepth(folders, folder.id))) - folderDepth(folders, folderId)
+  if (newDepth + subtreeDepth > MAX_FOLDER_DEPTH) return db
+  if (moving.parentId === parentId) return db
+  return { ...db, spaces: db.spaces.map((item) => item.id !== spaceId ? item : { ...item, folders: folders.map((folder) => folder.id !== folderId ? folder : parentId ? { ...folder, parentId } : (({ parentId: _parentId, ...rest }) => rest)(folder)), updatedAt: now }) }
 }
 
 export function moveTabToFolder(db: Database, spaceId: string, url: string, folderId: string | undefined, now: number): Database {
@@ -286,6 +331,7 @@ export function duplicateSpace(
     id: newId,
     name: newName,
     tabs: source.tabs.map((t) => ({ ...t })),
+    ...(source.folders ? { folders: source.folders.map((folder) => ({ ...folder })) } : {}),
     createdAt: now,
     updatedAt: now,
     ...(source.color ? { color: source.color } : {}),
@@ -307,14 +353,14 @@ export function mergeSpaces(
   // Keep the source folder structure while avoiding folder-ID collisions in the destination Space.
   const destinationFolderIds = new Set((to.folders ?? []).map((folder) => folder.id))
   const folderIdMap = new Map<string, string>()
-  const incomingFolders = (from.folders ?? []).map((folder) => {
+  for (const folder of from.folders ?? []) {
     let id = folder.id
     let suffix = 1
     while (destinationFolderIds.has(id)) id = `${folder.id}-${fromId}-${suffix++}`
     destinationFolderIds.add(id)
     folderIdMap.set(folder.id, id)
-    return { ...folder, id }
-  })
+  }
+  const incomingFolders = (from.folders ?? []).map((folder) => ({ ...folder, id: folderIdMap.get(folder.id)!, ...(folder.parentId ? { parentId: folderIdMap.get(folder.parentId) ?? folder.parentId } : {}) }))
   const incomingTabs = from.tabs.map((tab) => {
     if (!tab.folderId) return tab
     const folderId = folderIdMap.get(tab.folderId)

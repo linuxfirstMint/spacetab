@@ -43,16 +43,16 @@ describe('safeParseDatabase', () => {
     expect(safeParseDatabase({ ...validDb, spaces: [{ ...validDb.spaces[0], color: 'ultraviolet' }] }).ok).toBe(false)
   })
 
-  it('round-trips flat folder membership and collapsed state while keeping legacy spaces valid', () => {
+  it('round-trips nested folder membership and collapsed state while keeping legacy spaces valid', () => {
     const legacy = safeParseDatabase(validDb)
     const withFolder = safeParseDatabase({
       ...validDb,
-      spaces: [{ ...validDb.spaces[0], folders: [{ id: 'folder-1', name: 'Reading', collapsed: true }], tabs: [{ url: 'https://example.com/', title: 'Example', pinned: true, folderId: 'folder-1' }] }],
+      spaces: [{ ...validDb.spaces[0], folders: [{ id: 'folder-1', name: 'Reading', collapsed: true }, { id: 'folder-2', name: 'Books', parentId: 'folder-1' }], tabs: [{ url: 'https://example.com/', title: 'Example', pinned: true, folderId: 'folder-2' }] }],
     })
     expect(legacy.ok).toBe(true)
     expect(withFolder.ok && withFolder.db.spaces[0]).toMatchObject({
-      folders: [{ id: 'folder-1', name: 'Reading', collapsed: true }],
-      tabs: [{ pinned: true, folderId: 'folder-1' }],
+      folders: [{ id: 'folder-1', name: 'Reading', collapsed: true }, { id: 'folder-2', name: 'Books', parentId: 'folder-1' }],
+      tabs: [{ pinned: true, folderId: 'folder-2' }],
     })
   })
 
