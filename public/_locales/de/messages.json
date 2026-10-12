@@ -6,5 +6,13 @@
   "extDesc": {
     "message": "Tabs in Projekt-Bereiche organisieren. Sofortiges Wechseln zwischen Bereichen über ein verstecktes Vault-Fenster. Alle Daten bleiben lokal.",
     "description": "Kurzbeschreibung für Tooltip und Web Store"
+  },
+  "previewLinkMenu": {
+    "message": "Mit SpaceTab in der Vorschau öffnen",
+    "description": "Kontextmenü zum Öffnen eines HTTP(S)-Links in einem temporären Vorschaufenster."
+  },
+  "previewOpenAsTabMenu": {
+    "message": "Vorschau als normalen Tab öffnen",
+    "description": "Kontextmenü zum Verschieben der Vorschau in einen normalen Tab."
   }
 }

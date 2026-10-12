@@ -13,7 +13,7 @@ export default defineConfig({
     default_locale: 'en',
     version: '1.1.0',
     minimum_chrome_version: '116',
-    permissions: ['tabs', 'storage', 'tabGroups', 'sidePanel'],
+    permissions: ['tabs', 'storage', 'tabGroups', 'sidePanel', 'contextMenus'],
     side_panel: { default_path: 'sidepanel.html' },
     action: {
       default_title: '__MSG_extName__',

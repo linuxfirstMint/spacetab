@@ -46,11 +46,12 @@ SpaceTab organises your tabs into **named spaces** — one per project, side hus
 - **5 languages** — English, 简体中文, 繁體中文, 日本語, Deutsch.
 - **Themes** — light / dark / follow system.
 - **JSON export/import** — your data is portable.
+- **Link preview** — right-click an HTTP(S) link and choose “Preview with SpaceTab” to open it in a small popup while keeping the original page open. Repeated previews reuse that popup. On the preview page, choose “Open preview as a regular tab” to move it into the source window. This is a separate browser window, not an embedded or Arc-style peek; sites load normally and may require login or block access.
 
 ### Privacy
 
-- **Local-only**: `chrome.storage.local` + `chrome.storage.session`. No servers, no network calls, no analytics.
-- **3 minimal permissions**: `tabs`, `storage`, `tabGroups`. No host permissions, no content scripts.
+- **Local-only**: `chrome.storage.local` + `chrome.storage.session`. No SpaceTab servers or analytics; chosen destination sites load normally in Chrome.
+- **5 minimal permissions**: `tabs`, `storage`, `tabGroups`, `sidePanel`, `contextMenus`. The context menu is used only for the explicit link-preview and regular-tab actions. No host permissions or content scripts.
 - **MIT open source** — audit the code yourself.
 
 See [PRIVACY.md](PRIVACY.md).
@@ -206,8 +207,8 @@ SpaceTab 处在 OneTab(轻量收纳)和 Workona(重型工作流 SaaS)之间 — 
 
 ### 隐私
 
-- 仅本地存储,无服务器,无网络请求,无统计
-- 3 个最小权限:`tabs` / `storage` / `tabGroups`,不申请站点权限
+- 仅本地存储;无 SpaceTab 服务器或统计;选择预览的网站会由 Chrome 正常加载
+- 5 个最小权限:`tabs` / `storage` / `tabGroups` / `sidePanel` / `contextMenus`,不申请站点权限或内容脚本
 - MIT 开源,可审计
 
 详见 [PRIVACY.md](PRIVACY.md)。

@@ -2,6 +2,7 @@ import { AutoArchiveSettingsSchema, AutoArchivedTabSchema, type AutoArchivedTab,
 import { appendTabs } from './space'
 import { readDatabase, writeDatabase } from './storage'
 import { readSessionState, activeSpaceForWindow } from './session-state'
+import { LINK_PREVIEW_SESSION_KEY, readLinkPreviewSession } from './link-preview'
 
 const SETTINGS_KEY = 'autoArchiveSettings'
 const ARCHIVED_KEY = 'autoArchivedTabs'
@@ -75,6 +76,8 @@ export async function runAutoArchiveSweep(now = Date.now()): Promise<number> {
       lastUsed = value as Record<string, number>
     } catch { return 0 }
     const tabs = await chrome.tabs.query({})
+    const previewState: Record<string, unknown> = await chrome.storage.session.get(LINK_PREVIEW_SESSION_KEY).catch(() => ({}))
+    const previewWindowId = readLinkPreviewSession(previewState[LINK_PREVIEW_SESSION_KEY])?.windowId
     const history = await readAutoArchivedTabsSafely()
     if (!history) return 0
     let archived: AutoArchivedTab[] = history
@@ -82,6 +85,7 @@ export async function runAutoArchiveSweep(now = Date.now()): Promise<number> {
     let count = 0
     for (const tab of tabs) {
       if (typeof tab.id !== 'number' || tab.active || tab.pinned || tab.audible || tab.discarded || !tab.url || !/^https?:\/\//i.test(tab.url)) continue
+      if (tab.windowId === previewWindowId) continue
       const url = tab.url
       const usedAt = lastUsed[String(tab.id)]
       if (typeof usedAt !== 'number' || usedAt > deadline) continue

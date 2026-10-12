@@ -8,6 +8,7 @@ import { initializeAutoArchive, markAutoArchiveTabActivated, markAutoArchiveTabU
 import { readUrlRules } from '@/lib/url-rule-storage'
 import { selectUrlRule } from '@/lib/url-rules'
 import { moveLiveTabToSpace } from '@/lib/vault'
+import { LINK_PREVIEW_SESSION_KEY, parsePreviewUrl, readLinkPreviewSession } from '@/lib/link-preview'
 
 const NATURAL_STARTUP_DIAGNOSTIC_BUILD = 'natural-startup-local-diagnostic-v1'
 const STARTUP_DIAGNOSTICS_KEY = 'codexNaturalStartupDiagnostics'
@@ -94,6 +95,89 @@ export default defineBackground(() => {
   console.info('[SpaceTab] Background entry', NATURAL_STARTUP_DIAGNOSTIC_BUILD, new Date().toISOString())
   void recordStartupDiagnostic('background-entered')
   void initializeAutoArchive()
+
+  const previewMenuId = 'spacetab-preview-link'
+  const regularTabMenuId = 'spacetab-preview-open-as-tab'
+  const registerLinkPreviewMenus = async () => {
+    for (const id of [previewMenuId, regularTabMenuId]) {
+      await chrome.contextMenus.remove(id).catch(() => undefined)
+    }
+    const createMenu = (properties: chrome.contextMenus.CreateProperties) => new Promise<void>((resolve, reject) => {
+      chrome.contextMenus.create(properties, () => {
+        const error = chrome.runtime.lastError
+        if (error) reject(new Error(error.message))
+        else resolve()
+      })
+    })
+    await createMenu({
+      id: previewMenuId,
+      title: chrome.i18n.getMessage('previewLinkMenu'),
+      contexts: ['link'],
+      targetUrlPatterns: ['http://*/*', 'https://*/*'],
+    })
+    await createMenu({
+      id: regularTabMenuId,
+      title: chrome.i18n.getMessage('previewOpenAsTabMenu'),
+      contexts: ['page'],
+    })
+  }
+  void registerLinkPreviewMenus().catch(error => console.error('[SpaceTab] Could not register preview menu', error))
+
+  chrome.contextMenus.onClicked.addListener((info, sourceTab) => {
+    if (info.menuItemId === previewMenuId) {
+      const url = parsePreviewUrl(info.linkUrl)
+      if (!url || typeof sourceTab?.windowId !== 'number') return
+      void navigator.locks.request('spacetab-link-preview', async () => {
+        const stored = await chrome.storage.session.get(LINK_PREVIEW_SESSION_KEY)
+        const existing = readLinkPreviewSession(stored[LINK_PREVIEW_SESSION_KEY])
+        if (existing) {
+          try {
+            const previewWindow = await chrome.windows.get(existing.windowId)
+            const tab = previewWindow.tabs?.find(item => typeof item.id === 'number')
+              ?? (await chrome.tabs.query({ windowId: existing.windowId }))[0]
+            if (tab?.id !== undefined) {
+              await chrome.tabs.update(tab.id, { url, active: true })
+              await chrome.storage.session.set({
+                [LINK_PREVIEW_SESSION_KEY]: { windowId: existing.windowId, sourceWindowId: sourceTab.windowId },
+              })
+              await chrome.windows.update(existing.windowId, { focused: true })
+              return
+            }
+          } catch {
+            // A user may have closed the preview between menu display and selection.
+          }
+          await chrome.storage.session.remove(LINK_PREVIEW_SESSION_KEY)
+        }
+        const preview = await chrome.windows.create({ url, type: 'popup', width: 1000, height: 720, focused: true })
+        if (typeof preview?.id !== 'number') return
+        await chrome.storage.session.set({
+          [LINK_PREVIEW_SESSION_KEY]: { windowId: preview.id, sourceWindowId: sourceTab.windowId },
+        })
+      }).catch(error => console.error('[SpaceTab] Could not open link preview', error))
+      return
+    }
+
+    if (info.menuItemId !== regularTabMenuId || typeof sourceTab?.windowId !== 'number' || typeof sourceTab.id !== 'number') return
+    void navigator.locks.request('spacetab-link-preview', async () => {
+      const stored = await chrome.storage.session.get(LINK_PREVIEW_SESSION_KEY)
+      const preview = readLinkPreviewSession(stored[LINK_PREVIEW_SESSION_KEY])
+      if (!preview || preview.windowId !== sourceTab.windowId) return
+      const url = parsePreviewUrl(sourceTab.url || sourceTab.pendingUrl)
+      if (!url) return
+      let destinationWindowId = preview.sourceWindowId
+      try {
+        const destination = await chrome.windows.get(destinationWindowId)
+        if (destination.type !== 'normal') throw new Error('Source window is unavailable')
+      } catch {
+        const destination = await chrome.windows.getLastFocused({ windowTypes: ['normal'] })
+        if (typeof destination.id !== 'number' || destination.id === preview.windowId) return
+        destinationWindowId = destination.id
+      }
+      await chrome.tabs.create({ windowId: destinationWindowId, url, active: true })
+      await chrome.storage.session.remove(LINK_PREVIEW_SESSION_KEY)
+      await chrome.windows.remove(preview.windowId).catch(() => undefined)
+    }).catch(error => console.error('[SpaceTab] Could not move preview into a tab', error))
+  })
 
   console.info('[SpaceTab] Requesting side panel behavior', NATURAL_STARTUP_DIAGNOSTIC_BUILD)
   try {
@@ -293,6 +377,10 @@ export default defineBackground(() => {
 
   chrome.windows.onRemoved.addListener((winId) => {
     closingWindowIds.delete(winId)
+    void chrome.storage.session.get(LINK_PREVIEW_SESSION_KEY).then(stored => {
+      const preview = readLinkPreviewSession(stored[LINK_PREVIEW_SESSION_KEY])
+      if (preview?.windowId === winId) return chrome.storage.session.remove(LINK_PREVIEW_SESSION_KEY)
+    }).catch(() => undefined)
     void onWindowRemovedHandler(winId)
   })
 

@@ -1,0 +1,23 @@
+{
+  "status": "partial",
+  "profile": "C:\\Users\\yamas\\spacetab-win-test-20261010\\artifacts\\profile-issue9-url-routing-v16-20261011",
+  "extension": "C:\\Users\\yamas\\spacetab-win-test-20261010\\issue9-extension",
+  "extensionId": "gjakioodlgbbfcmagakdfkhpnaehgbmc",
+  "permissions": ["tabs", "storage", "tabGroups", "sidePanel", "contextMenus"],
+  "checks": [
+    "dedicated_profile_was_not_running_before_each_test_launch",
+    "updated_extension_service_worker_started",
+    "contextMenus_permission_present_in_loaded_manifest",
+    "all_test_chrome_processes_exited_after_each_run"
+  ],
+  "not_verified": [
+    "preview_context_menu_activation",
+    "redirect_handling_in_preview_popup",
+    "repeated_preview_reuses_popup",
+    "conversion_to_regular_tab"
+  ],
+  "blocker": "The SSH-launched Windows desktop did not expose native Chrome context-menu items through UI Automation; the harness could not select the SpaceTab menu entry.",
+  "directStorageWritesByTestCode": 0,
+  "directStorageClearsByTestCode": 0,
+  "permissionPromptObserved": false
+}

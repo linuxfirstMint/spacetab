@@ -6,5 +6,13 @@
   "extDesc": {
     "message": "Project spaces for your tabs. Switch between named workspaces instantly via a hidden vault window. All data stays local.",
     "description": "Short description for the toolbar tooltip and Web Store."
+  },
+  "previewLinkMenu": {
+    "message": "Preview with SpaceTab",
+    "description": "Context menu action to open an HTTP(S) link in a temporary preview window."
+  },
+  "previewOpenAsTabMenu": {
+    "message": "Open preview as a regular tab",
+    "description": "Context menu action to move the preview into a regular tab."
   }
 }

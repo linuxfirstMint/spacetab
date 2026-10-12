@@ -6,5 +6,13 @@
   "extDesc": {
     "message": "用项目「空间」管理你的标签。隐藏窗口让空间切换瞬间完成,数据全部本地保存。",
     "description": "扩展简短描述(工具栏 tooltip 和商店列表)"
+  },
+  "previewLinkMenu": {
+    "message": "使用 SpaceTab 预览",
+    "description": "在临时预览窗口中打开 HTTP(S) 链接的上下文菜单。"
+  },
+  "previewOpenAsTabMenu": {
+    "message": "将预览作为普通标签页打开",
+    "description": "将预览移至普通标签页的上下文菜单。"
   }
 }

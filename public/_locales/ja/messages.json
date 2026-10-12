@@ -6,5 +6,13 @@
   "extDesc": {
     "message": "タブをプロジェクトの「スペース」で整理。隠しウィンドウでスペース切り替えを瞬時に。データはすべてローカル保存。",
     "description": "拡張機能の短い説明(ツールバーのツールチップとストア一覧)"
+  },
+  "previewLinkMenu": {
+    "message": "SpaceTabでプレビュー",
+    "description": "HTTP(S)リンクを一時的なプレビューウィンドウで開くコンテキストメニュー。"
+  },
+  "previewOpenAsTabMenu": {
+    "message": "プレビューを通常タブとして開く",
+    "description": "プレビューを通常タブに移すコンテキストメニュー。"
   }
 }

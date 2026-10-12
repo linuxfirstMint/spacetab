@@ -26,15 +26,19 @@ You can export everything as a JSON file at any time, or import a JSON file you 
 
 ## 3. Permissions
 
-SpaceTab requests three Chrome permissions. Each is used only for the feature it enables:
+SpaceTab requests five Chrome permissions. Each is used only for the feature it enables:
 
 | Permission | Why we need it |
 |---|---|
 | `tabs` | Read and arrange the tabs in your current window so you can archive them into spaces, switch between spaces, move tabs between spaces, and discard inactive tabs. |
 | `storage` | Save your spaces locally (`chrome.storage.local`) so they persist across browser restarts. |
 | `tabGroups` | Read and recreate Chrome's native tab groups (color + title) when you archive a window or switch to a space, so your visual organization survives the round-trip. |
+| `sidePanel` | Open the SpaceTab manager in Chrome's side panel when you click the extension action. |
+| `contextMenus` | Add an explicit “Preview with SpaceTab” action on HTTP(S) links and an action to move the active preview into a regular tab. |
 
-We never request `<all_urls>`, host permissions, content scripts, or any other elevated capabilities.
+Link previews open the selected HTTP(S) URL in a small top-level Chrome popup window. This is not an embedded preview and does not bypass site framing, login, or other security restrictions. Chrome loads the selected site normally, so the site may set cookies or perform its ordinary page behavior after the user explicitly opens it. SpaceTab does not copy cookies, strip security headers, or send the URL or page contents to an external preview service. A temporary popup/source window ID pair is kept in `chrome.storage.session` so repeated previews can reuse the popup and offer a regular-tab action; the URL and page contents are not saved by this feature. The marker clears when the popup closes or the browser session ends. Closing the popup returns focus to Chrome's prior window when Chrome permits it.
+
+We never request `<all_urls>`, host permissions, or content scripts.
 
 ## 4. Third parties
 
@@ -46,7 +50,7 @@ When SpaceTab renders a saved favicon, your browser fetches the favicon URL the 
 
 SpaceTab does not make any outbound network requests on its own. The extension is a single static page bundle plus a service worker; neither contacts a SpaceTab server (we don't have one).
 
-The only network activity caused by SpaceTab is what your browser does when you click a tab to open it — that is your normal browsing, not telemetry.
+The browser loads the site you explicitly choose to preview or open as a tab. That is normal browsing to the destination site, not telemetry or a request to a SpaceTab service.
 
 ## 6. Children
 
@@ -90,15 +94,19 @@ SpaceTab 创建的数据完全保存在你浏览器本地的存储里(`chrome.st
 
 ## 3. 权限
 
-SpaceTab 申请 3 个 Chrome 权限,每个权限只服务于它启用的功能:
+SpaceTab 申请 5 个 Chrome 权限,每个权限只服务于它启用的功能:
 
 | 权限 | 为什么需要 |
 |---|---|
 | `tabs` | 读取并整理当前窗口的标签:归档到空间、切换空间、跨空间移动、休眠非活动标签。 |
 | `storage` | 把你的空间保存在本地(`chrome.storage.local`)以便重启浏览器后还能恢复。 |
 | `tabGroups` | 读取和重建 Chrome 原生的标签组(颜色 + 标题),让你归档窗口或切换空间时分组结构不丢失。 |
+| `sidePanel` | 点击扩展程序按钮时在 Chrome 侧边栏打开 SpaceTab 管理器。 |
+| `contextMenus` | 在 HTTP(S) 链接菜单中添加明确的预览操作,并提供将预览移为普通标签页的操作。 |
 
-我们从不申请 `<all_urls>`、宿主权限、内容脚本或任何其他高权限。
+链接预览会在小型 Chrome 顶层弹出窗口中打开所选 HTTP(S) URL。这不是嵌入式预览,也不会绕过网站的框架、登录或其他安全限制。Chrome 会像平常一样加载网站,因此用户明确打开后,网站可能设置 Cookie 或执行正常页面行为。SpaceTab 不会复制 Cookie、移除安全响应头,也不会把 URL 或页面内容发送给外部预览服务。临时弹窗和来源窗口 ID 保存在 `chrome.storage.session`,用于重用弹窗和提供普通标签页操作;此功能不会保存 URL 或页面内容。关闭弹窗或浏览器会话结束后,标记会清除。
+
+我们从不申请 `<all_urls>`、宿主权限或内容脚本。
 
 ## 4. 第三方
 

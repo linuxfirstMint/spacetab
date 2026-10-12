@@ -6,5 +6,13 @@
   "extDesc": {
     "message": "用專案「空間」管理你的分頁。隱藏視窗讓空間切換瞬間完成,資料全部本地儲存。",
     "description": "擴充功能簡短描述(工具列提示與商店清單)"
+  },
+  "previewLinkMenu": {
+    "message": "使用 SpaceTab 預覽",
+    "description": "在暫時預覽視窗中開啟 HTTP(S) 連結的內容選單。"
+  },
+  "previewOpenAsTabMenu": {
+    "message": "將預覽作為一般分頁開啟",
+    "description": "將預覽移至一般分頁的內容選單。"
   }
 }
