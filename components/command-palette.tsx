@@ -47,6 +47,7 @@ export function CommandPalette({ commands, open, onClose }: Props) {
   useEffect(() => {
     if (!open) return
     const onKey = (e: KeyboardEvent) => {
+      if (e.isComposing || e.keyCode === 229) return
       if (e.key === 'Escape') {
         e.preventDefault()
         onClose()
@@ -92,6 +93,9 @@ export function CommandPalette({ commands, open, onClose }: Props) {
       onClick={onClose}
     >
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={t('commandPalette')}
         className="w-full max-w-[600px] bg-white dark:bg-slate-900 rounded-xl shadow-2xl border border-slate-200 dark:border-slate-700 flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >

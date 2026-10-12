@@ -16,7 +16,7 @@ export function ImportDialog({ summary, onCancel, onConfirm }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) onCancel()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -24,6 +24,9 @@ export function ImportDialog({ summary, onCancel, onConfirm }: Props) {
 
   return createPortal(
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="import-dialog-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
       onClick={onCancel}
     >
@@ -32,7 +35,7 @@ export function ImportDialog({ summary, onCancel, onConfirm }: Props) {
         onClick={(e) => e.stopPropagation()}
       >
         <header className="px-6 py-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between gap-3">
-          <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{t('importDialogTitle')}</h2>
+          <h2 id="import-dialog-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">{t('importDialogTitle')}</h2>
           <button
             onClick={onCancel}
             className="w-8 h-8 flex items-center justify-center rounded-md text-slate-400 dark:text-slate-500 hover:text-slate-700 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700 transition-colors"

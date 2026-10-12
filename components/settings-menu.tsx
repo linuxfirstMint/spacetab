@@ -9,6 +9,7 @@ import { normalizeUrlPattern } from '@/lib/url-rules'
 import { readUrlRules, writeUrlRules } from '@/lib/url-rule-storage'
 import { readDeletionHistory } from '@/lib/deletion-history'
 import type { DeletionRecord } from '@/lib/schema'
+import { ShortcutSettingsDialog } from './shortcut-settings-dialog'
 
 interface Props {
   onExport: () => void
@@ -27,6 +28,7 @@ export function SettingsMenu({ onExport, onImport }: Props) {
   const [pattern, setPattern] = useState('https://*.example.com/*')
   const [spaceId, setSpaceId] = useState('')
   const [editingRuleId, setEditingRuleId] = useState<string | null>(null)
+  const [shortcutsOpen, setShortcutsOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -97,6 +99,9 @@ export function SettingsMenu({ onExport, onImport }: Props) {
               </button>
             ))}
           </div>
+          <div className="border-t border-slate-100 p-2 dark:border-slate-700">
+            <button type="button" onClick={() => setShortcutsOpen(true)} className="w-full rounded px-2 py-1.5 text-left text-sm hover:bg-slate-50 dark:hover:bg-slate-800">Keyboard shortcuts</button>
+          </div>
           <div className="border-t border-slate-100 dark:border-slate-700 p-3 space-y-2">
             <div className="text-[10px] font-semibold uppercase tracking-wider text-slate-500">URL routing rules</div>
             <p className="text-[11px] leading-4 text-slate-500 dark:text-slate-400">Disabled until you add a rule. Matches full HTTP(S) URLs; * is a wildcard. Applies only to new links opened in a new tab, after redirects finish. Existing-tab navigation and OS links before Chrome receives them are not routed.</p>
@@ -166,6 +171,7 @@ export function SettingsMenu({ onExport, onImport }: Props) {
           </div>
         </div>
       )}
+      {shortcutsOpen && <ShortcutSettingsDialog onClose={() => setShortcutsOpen(false)} />}
     </div>
   )
 }

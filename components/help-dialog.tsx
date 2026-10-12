@@ -14,7 +14,7 @@ export function HelpDialog({ onClose, isWelcome = false }: Props) {
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) onClose()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -22,6 +22,9 @@ export function HelpDialog({ onClose, isWelcome = false }: Props) {
 
   return createPortal(
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="help-dialog-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
       onClick={onClose}
     >
@@ -35,7 +38,7 @@ export function HelpDialog({ onClose, isWelcome = false }: Props) {
           </div>
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{t('helpTitle')}</h2>
+              <h2 id="help-dialog-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">{t('helpTitle')}</h2>
               {isWelcome && (
                 <span className="px-1.5 py-0.5 text-[10px] font-medium rounded-md bg-violet-100 text-violet-700">
                   {t('welcomeBadge')}

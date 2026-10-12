@@ -1,0 +1,79 @@
+{
+  "profile": "C:\\Users\\yamas\\spacetab-win-test-20261010\\artifacts\\profile-issue9-url-routing-v16-20261011",
+  "extension": "C:\\Users\\yamas\\spacetab-win-test-20261010\\issue9-extension",
+  "checks": [
+    "registered_folder_verified_and_extension_reloaded_from_that_path",
+    "chrome_extensions_card_present_and_enabled",
+    "focused_input_receives_navigation_letters_without_global_handling",
+    "second_window_loaded_shared_shortcut_setting",
+    "in_app_and_chrome_managed_shortcuts_listed_with_settings_link",
+    "custom_shortcut_changed_through_ui",
+    "storage_change_synced_to_second_manager_window",
+    "reset_restores_default_palette_shortcut",
+    "custom_shortcut_invokes_palette",
+    "executed_service_worker_sha_matches_deployed_build",
+    "dedicated_profile_chrome_exited_cleanly",
+    "custom_shortcut_persisted_after_normal_restart",
+    "shortcut_reset_to_default_after_restart_verification"
+  ],
+  "chromePids": [
+    [
+      5468,
+      2464,
+      13096,
+      20684,
+      8356,
+      17784,
+      10928,
+      24960,
+      8344,
+      26332
+    ]
+  ],
+  "status": "passed",
+  "directStorageWritesByTestCode": 0,
+  "directStorageClearsByTestCode": 0,
+  "diskWorkerHash": "bbddc2a59d2081cde94118036b05ac6805ec9134ea1d20c403d60dc18e187c73",
+  "extensionId": "gjakioodlgbbfcmagakdfkhpnaehgbmc",
+  "extensionCard": {
+    "id": "gjakioodlgbbfcmagakdfkhpnaehgbmc",
+    "name": "SpaceTab",
+    "enabled": true
+  },
+  "registeredUnpackedPath": "ロード元: ~\\spacetab-win-test-20261010\\issue9-extension",
+  "chromeShortcutSettingsUrl": "chrome://extensions/shortcuts",
+  "shortcutListText": "Keyboard shortcuts\n\nReview what SpaceTab handles and change the in-app command palette key.\n\n×\nSPACETAB · THIS PAGE\nOpen command palette\nCtrl+K\nChange\nReset to default\nClear\nCHROME · MANAGED BY CHROME\n_execute_action\nCtrl+Shift+S\nNext Space\nCtrl+Shift+右矢印キー\nPrevious Space\nCtrl+Shift+左矢印キー\n\nChrome controls these extension shortcuts. SpaceTab cannot change their assignments here. Conflicts with the OS, other applications, or browser reservations cannot be fully detected.\n\nOpen Chrome shortcut settings\nPAGE NAVIGATION · FIXED\n\n/ search · J/K or ↑/↓ move · Enter switch · Esc clear or close. These work when focus is outside fields and dialogs; IME composition is ignored.",
+  "executedWorkerHash": "bbddc2a59d2081cde94118036b05ac6805ec9134ea1d20c403d60dc18e187c73",
+  "chromePidsBeforeExit": [
+    5468,
+    2464,
+    13096,
+    20684,
+    8356,
+    17784,
+    10928,
+    8344,
+    29440,
+    8348,
+    28168,
+    9748
+  ],
+  "chromePidsAfterExit": [],
+  "postRestartWorkerHash": "bbddc2a59d2081cde94118036b05ac6805ec9134ea1d20c403d60dc18e187c73",
+  "chromePidsAfterRestart": [
+    21880,
+    19508,
+    4436,
+    13268,
+    29748,
+    14464,
+    9252,
+    2036,
+    27224,
+    7744,
+    6704,
+    23424
+  ],
+  "chromePidsAtEnd": [],
+  "completedAt": "2026-10-12T02:02:52.868Z"
+}

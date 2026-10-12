@@ -56,7 +56,7 @@ export function SmartArchiveDialog({ initialClusters, totalTabsCount, onCancel, 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onCancel()
+      if (e.key === 'Escape' && !e.isComposing && e.keyCode !== 229) onCancel()
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
@@ -137,6 +137,9 @@ export function SmartArchiveDialog({ initialClusters, totalTabsCount, onCancel, 
 
   return createPortal(
     <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smart-archive-dialog-title"
       className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm p-4"
       onClick={onCancel}
     >
@@ -149,7 +152,7 @@ export function SmartArchiveDialog({ initialClusters, totalTabsCount, onCancel, 
             <Sparkle className="w-4 h-4" />
           </div>
           <div className="flex-1">
-            <h2 className="text-base font-semibold text-slate-900 dark:text-slate-100">{t('smartArchive')}</h2>
+            <h2 id="smart-archive-dialog-title" className="text-base font-semibold text-slate-900 dark:text-slate-100">{t('smartArchive')}</h2>
             <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
               {t('smartArchiveSummary', { n: totalTabsCount, g: clusters.length })}
             </p>

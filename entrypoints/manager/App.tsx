@@ -32,6 +32,7 @@ import { filterDatabase } from '@/lib/search'
 import { sortedForDisplay } from '@/lib/space'
 import { readSessionState } from '@/lib/session-state'
 import type { Tab, Database } from '@/lib/schema'
+import { DEFAULT_PALETTE_SHORTCUT, isImeComposition, isMacPlatform, matchesPaletteShortcut, PALETTE_SHORTCUT_STORAGE_KEY, type PaletteShortcut } from '@/lib/shortcuts'
 
 export default function App() {
   const {
@@ -65,6 +66,21 @@ export default function App() {
   const [helpDialog, setHelpDialog] = useState<null | 'help' | 'welcome'>(null)
   // 命令面板开关
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [paletteShortcut, setPaletteShortcut] = useState<PaletteShortcut | null>(DEFAULT_PALETTE_SHORTCUT)
+
+  useEffect(() => {
+    const read = (value: unknown): PaletteShortcut | null => {
+      if (value === null) return null
+      if (value && typeof value === 'object' && 'key' in value && typeof value.key === 'string' && /^[a-z0-9]$/i.test(value.key)) return { key: value.key.toLowerCase(), modifier: true }
+      return DEFAULT_PALETTE_SHORTCUT
+    }
+    void chrome.storage.local.get(PALETTE_SHORTCUT_STORAGE_KEY).then(value => setPaletteShortcut(PALETTE_SHORTCUT_STORAGE_KEY in value ? read(value[PALETTE_SHORTCUT_STORAGE_KEY]) : DEFAULT_PALETTE_SHORTCUT)).catch(() => undefined)
+    const onChanged = (changes: { [key: string]: chrome.storage.StorageChange }, area: string) => {
+      if (area === 'local' && changes[PALETTE_SHORTCUT_STORAGE_KEY]) setPaletteShortcut(read(changes[PALETTE_SHORTCUT_STORAGE_KEY]?.newValue))
+    }
+    chrome.storage.onChanged.addListener(onChanged)
+    return () => chrome.storage.onChanged.removeListener(onChanged)
+  }, [])
 
   // 搜索 + 键盘导航
   const [query, setQuery] = useState('')
@@ -81,12 +97,14 @@ export default function App() {
     const isTextInput = (el: Element | null): boolean => {
       if (!el) return false
       const tag = el.tagName
-      return tag === 'INPUT' || tag === 'TEXTAREA' || (el as HTMLElement).isContentEditable
+      return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || (el as HTMLElement).isContentEditable
     }
     const onKey = (e: KeyboardEvent) => {
+      if (isImeComposition(e)) return
+      if (document.querySelector('[aria-modal="true"]')) return
+      if (e.target instanceof HTMLElement && e.target.closest('button, a, select, [role="button"], [contenteditable="true"]')) return
       const inText = isTextInput(document.activeElement)
-      // ⌘K / Ctrl+K 任何时候打开命令面板
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+      if (paletteShortcut && matchesPaletteShortcut(e, paletteShortcut, isMacPlatform(navigator.platform))) {
         e.preventDefault()
         setPaletteOpen((v) => !v)
         return
@@ -129,7 +147,7 @@ export default function App() {
     return () => document.removeEventListener('keydown', onKey)
     // switchTo 在下面声明,但 closure 会捕获最新值因为依赖里没列。这里 ESLint 可能告警 — 用 ref 模式可以,但简单点接受。
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, focusedIndex, sortedSpaces])
+  }, [query, focusedIndex, sortedSpaces, paletteShortcut])
 
   // 焦点 index 越界时纠偏(空间被过滤掉了)
   useEffect(() => {

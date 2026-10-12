@@ -139,6 +139,15 @@ describe('format', () => {
     expect(format('de', 'switchAction')).toBe('Wechseln')
   })
 
+  it('localizes shortcut settings and conflict guidance in every supported language', async () => {
+    const { format } = await import('@/lib/i18n')
+    expect(format('zh-CN', 'keyboardShortcuts')).toBe('键盘快捷键')
+    expect(format('zh-TW', 'shortcutClose')).toBe('關閉')
+    expect(format('en', 'shortcutOpenChromeSettings')).toBe('Open Chrome shortcut settings')
+    expect(format('ja', 'shortcutChromeConflict', { commands: 'Next Space' })).toContain('Next Space')
+    expect(format('de', 'shortcutChromeNote')).toContain('Chrome')
+  })
+
   it('handles {n} in time keys', async () => {
     const { format } = await import('@/lib/i18n')
     expect(format('en', 'timeMinutesAgo', { n: 10 })).toBe('10m ago')
