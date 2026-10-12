@@ -3,21 +3,36 @@
   "profile": "C:\\Users\\yamas\\spacetab-win-test-20261010\\artifacts\\profile-issue9-url-routing-v16-20261011",
   "extension": "C:\\Users\\yamas\\spacetab-win-test-20261010\\issue9-extension",
   "extensionId": "gjakioodlgbbfcmagakdfkhpnaehgbmc",
-  "permissions": ["tabs", "storage", "tabGroups", "sidePanel", "contextMenus"],
+  "permissions": [
+    "tabs",
+    "storage",
+    "tabGroups",
+    "sidePanel",
+    "contextMenus"
+  ],
+  "deployedWorkerSha256BeforeFix": "E1AA7295320122E3308CE1AECAC8300A18396B0A33B2B9B4FB79A4138B0C0AA5",
+  "deployedWorkerSha256AfterFix": "5CDCD6EF359408963436FA4465F4360F7C20457EC191ACCBFD8B156A91BC29FE",
   "checks": [
-    "dedicated_profile_was_not_running_before_each_test_launch",
-    "updated_extension_service_worker_started",
-    "contextMenus_permission_present_in_loaded_manifest",
-    "all_test_chrome_processes_exited_after_each_run"
+    "native_mdn_https_link_menu_absent_before_extension_reload",
+    "native_mdn_https_link_menu_visible_after_extension_reload",
+    "real_right_click_opened_mdn_preview_popup",
+    "real_second_right_click_reused_preview_popup",
+    "conversion_attempt_logged_no_last_focused_window_when_source_closed",
+    "fallback_to_new_normal_window_implemented_and_unit_tested",
+    "updated_build_copied_to_dedicated_extension_directory",
+    "remote_worker_sha256_matches_local_build_after_fix",
+    "ci_success_38213472252"
   ],
   "not_verified": [
-    "preview_context_menu_activation",
-    "redirect_handling_in_preview_popup",
-    "repeated_preview_reuses_popup",
-    "conversion_to_regular_tab"
+    "real_browser_conversion_after_fix_reload",
+    "source_url_input_and_scroll_preservation",
+    "multiple_normal_windows",
+    "dedicated_profile_normal_shutdown_and_natural_restart",
+    "post_fix_worker_runtime_sha_after_reload"
   ],
-  "blocker": "The SSH-launched Windows desktop did not expose native Chrome context-menu items through UI Automation; the harness could not select the SpaceTab menu entry.",
+  "diagnosis": "The on-disk extension had the new worker and contextMenus manifest permission, but the Chrome instance did not expose the new menu until the extension was manually reloaded. After reload, the native menu and preview popup worked. Conversion failed when no normal window remained, with a service-worker console error: No last-focused window.",
   "directStorageWritesByTestCode": 0,
   "directStorageClearsByTestCode": 0,
-  "permissionPromptObserved": false
+  "permissionPromptObserved": false,
+  "ciRun": "https://github.com/linuxfirstMint/spacetab/actions/runs/38213472252"
 }
