@@ -28,6 +28,8 @@ interface Props {
   onTabReorder: (spaceId: string, orderedUrls: string[]) => void
   onTabsRemove: (spaceId: string, urls: string[]) => void
   onTabsMove: (fromId: string, toId: string, urls: string[]) => void
+  onSplitTabs: (spaceId: string, urls: string[]) => void
+  onUnsplitTabs: (spaceId: string, urls: string[]) => void
   onLiveTabDrop: (tabId: number, toSpaceId: string) => void
   onMerge: (fromId: string, toId: string) => void
   onReorder: (fromId: string, toId: string, position: 'before' | 'after') => void
@@ -62,6 +64,8 @@ export function SpaceList({
   onTabReorder,
   onTabsRemove,
   onTabsMove,
+  onSplitTabs,
+  onUnsplitTabs,
   onLiveTabDrop,
   onMerge,
   onReorder,
@@ -112,6 +116,8 @@ export function SpaceList({
           onTabReorder={onTabReorder}
           onTabsRemove={onTabsRemove}
           onTabsMove={onTabsMove}
+          onSplitTabs={onSplitTabs}
+          onUnsplitTabs={onUnsplitTabs}
           onLiveTabDrop={onLiveTabDrop}
           onMerge={onMerge}
           onReorder={onReorder}

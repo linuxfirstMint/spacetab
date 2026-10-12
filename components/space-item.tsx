@@ -41,6 +41,8 @@ interface Props {
   onTabReorder: (spaceId: string, orderedUrls: string[]) => void
   onTabsRemove: (spaceId: string, urls: string[]) => void
   onTabsMove: (fromId: string, toId: string, urls: string[]) => void
+  onSplitTabs: (spaceId: string, urls: string[]) => void
+  onUnsplitTabs: (spaceId: string, urls: string[]) => void
   onLiveTabDrop: (tabId: number, toSpaceId: string) => void
   onMerge: (fromId: string, toId: string) => void
   onReorder: (fromId: string, toId: string, position: 'before' | 'after') => void
@@ -93,6 +95,8 @@ export function SpaceItem({
   onTabReorder,
   onTabsRemove,
   onTabsMove,
+  onSplitTabs,
+  onUnsplitTabs,
   onLiveTabDrop,
   onMerge,
   onReorder,
@@ -813,6 +817,22 @@ export function SpaceItem({
               className="px-2 h-6 text-xs font-medium rounded text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-800/40 transition-colors"
             >
               {t('openSelected')}
+            </button>
+            <button
+              onClick={() => onSplitTabs(space.id, selectedUrlsOrdered)}
+              disabled={selectedUrlsOrdered.length !== 2}
+              title={t('splitSelectedHint')}
+              className="px-2 h-6 text-xs font-medium rounded text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-800/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t('splitSelected')}
+            </button>
+            <button
+              onClick={() => onUnsplitTabs(space.id, selectedUrlsOrdered)}
+              disabled={selectedUrlsOrdered.length !== 2}
+              title={t('unsplitSelectedHint')}
+              className="px-2 h-6 text-xs font-medium rounded text-emerald-800 dark:text-emerald-200 hover:bg-emerald-100 dark:hover:bg-emerald-800/40 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              {t('unsplitSelected')}
             </button>
             {otherSpaces.length > 0 && (
               <button

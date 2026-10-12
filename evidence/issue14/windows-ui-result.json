@@ -1,0 +1,95 @@
+{
+  "profile": "C:\\Users\\yamas\\spacetab-win-test-20261010\\artifacts\\profile-issue9-url-routing-v16-20261011",
+  "extension": "C:\\Users\\yamas\\spacetab-win-test-20261010\\issue9-extension",
+  "spaceName": "Issue 14 Split QA 1791779893505",
+  "checks": [
+    "chrome155_native_api_feature_detected_after_real_extension_reload",
+    "executing_worker_source_matches_deployed_worker_sha256",
+    "dedicated_fixture_space_created_through_import_ui",
+    "test_tabs_added_to_spaces_using_live_tab_ui",
+    "test_space_selected_before_comparison",
+    "selected_two_live_space_tabs_native_split_created",
+    "existing_split_refused_with_clear_ui_message",
+    "selected_pair_unsplit_through_space_ui",
+    "switching_to_other_space_and_back_preserved_test_pages",
+    "non_adjacent_pair_refused_without_tab_reordering",
+    "pinned_and_group_mismatch_refused_without_state_changes",
+    "tab_in_another_window_refused_with_current_window_guidance",
+    "native_split_and_unsplit_remain_repeatable_after_constraint_checks",
+    "closing_one_test_side_leaves_remaining_tab_unsplit",
+    "space_and_both_saved_tab_rows_persist_after_natural_profile_restart",
+    "temporary_issue14_space_removed_through_normal_ui"
+  ],
+  "directStorageWritesByTestCode": 0,
+  "directStorageClearsByTestCode": 0,
+  "status": "passed",
+  "deployedWorkerHash": "8413daefc303ee09c774f8eedec678c19e19f27515cd533de00fa1b8f82b76a9",
+  "testUrls": [
+    "http://127.0.0.1:60134/tab-a",
+    "http://127.0.0.1:60134/tab-b"
+  ],
+  "initialProfilePids": [
+    12856,
+    24064,
+    26520,
+    9184,
+    18036,
+    1960,
+    4232,
+    2172,
+    21196,
+    21916
+  ],
+  "chromeUserAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/155.0.0.0 Safari/537.36",
+  "extensionCard": {
+    "id": "gjakioodlgbbfcmagakdfkhpnaehgbmc",
+    "name": "SpaceTab",
+    "enabled": true
+  },
+  "registeredUnpackedPath": "ロード元: ~\\spacetab-win-test-20261010\\issue9-extension",
+  "nativeApiAvailable": {
+    "createSplit": "function",
+    "unsplit": "function"
+  },
+  "executedWorkerHash": "8413daefc303ee09c774f8eedec678c19e19f27515cd533de00fa1b8f82b76a9",
+  "testWindowBefore": [
+    {
+      "id": 112367117,
+      "url": "http://127.0.0.1:60134/tab-a",
+      "windowId": 112366986,
+      "index": 7,
+      "pinned": false,
+      "groupId": -1,
+      "splitViewId": -1
+    },
+    {
+      "id": 112367118,
+      "url": "http://127.0.0.1:60134/tab-b",
+      "windowId": 112366986,
+      "index": 8,
+      "pinned": false,
+      "groupId": -1,
+      "splitViewId": -1
+    }
+  ],
+  "splitViewId": 2088955909,
+  "beforeExitPids": [
+    12856,
+    24064,
+    26520,
+    9184,
+    18036,
+    1960,
+    4232,
+    21196,
+    16704,
+    1668,
+    8940,
+    5128,
+    2708,
+    6352
+  ],
+  "afterExitPids": [],
+  "finalProfilePids": [],
+  "completedAt": "2026-10-12T04:38:43.883Z"
+}

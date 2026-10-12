@@ -28,6 +28,7 @@ import { useT } from '@/lib/i18n'
 import { useTheme, type ThemePref } from '@/lib/theme'
 import { useUseAsNewtab, useGroupTabsByDomain } from '@/lib/settings'
 import { discardInactiveInManagerWindow } from '@/lib/live-tabs'
+import { splitLiveSpaceTabs, unsplitLiveSpaceTabs } from '@/lib/split-view'
 import { filterDatabase } from '@/lib/search'
 import { sortedForDisplay } from '@/lib/space'
 import { readSessionState } from '@/lib/session-state'
@@ -321,6 +322,48 @@ export default function App() {
     void chrome.tabs.create({ url, active: true })
   }
 
+  const handleSplitTabs = async (_spaceId: string, urls: string[]) => {
+    const result = await splitLiveSpaceTabs(urls)
+    if (result.ok) {
+      pushToast('info', t('splitSuccess'))
+      return
+    }
+    const message: Record<typeof result.reason, string> = {
+      unsupported: t('splitUnsupported'),
+      'manager-unavailable': t('splitManagerUnavailable'),
+      'tabs-not-live': t('splitTabsNotLive'),
+      'different-window': t('splitSameWindow'),
+      'pinned-mismatch': t('splitPinnedMismatch'),
+      'group-mismatch': t('splitGroupMismatch'),
+      'already-split': t('splitAlreadySplit'),
+      'not-adjacent': t('splitNotAdjacent'),
+      'api-error': t('splitApiError'),
+      'not-split-together': t('unsplitNotTogether'),
+    }
+    pushToast('error', message[result.reason])
+  }
+
+  const handleUnsplitTabs = async (_spaceId: string, urls: string[]) => {
+    const result = await unsplitLiveSpaceTabs(urls)
+    if (result.ok) {
+      pushToast('info', t('unsplitSuccess'))
+      return
+    }
+    const message: Record<typeof result.reason, string> = {
+      unsupported: t('splitUnsupported'),
+      'manager-unavailable': t('splitManagerUnavailable'),
+      'tabs-not-live': t('splitTabsNotLive'),
+      'different-window': t('splitSameWindow'),
+      'pinned-mismatch': t('splitPinnedMismatch'),
+      'group-mismatch': t('splitGroupMismatch'),
+      'already-split': t('splitAlreadySplit'),
+      'not-adjacent': t('splitNotAdjacent'),
+      'not-split-together': t('unsplitNotTogether'),
+      'api-error': t('splitApiError'),
+    }
+    pushToast('error', message[result.reason])
+  }
+
   const restoreSavedTabUrl = (spaceId: string, url: string) => {
     const tab = db.spaces.find(space => space.id === spaceId)?.tabs.find(item => item.url === url)
     if (!tab?.currentUrl) return
@@ -599,6 +642,8 @@ export default function App() {
                 onTabReorder={reorderTabs}
                 onTabsRemove={removeTabs}
                 onTabsMove={moveTabsBatch}
+                onSplitTabs={handleSplitTabs}
+                onUnsplitTabs={handleUnsplitTabs}
                 onLiveTabDrop={handleLiveTabMove}
                 onMerge={handleMerge}
                 onReorder={handleReorder}
